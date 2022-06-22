@@ -1,14 +1,21 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
+	"os"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/terminal"
+
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 )
 
 func main() {
@@ -106,6 +113,13 @@ func main() {
 
 	fmt.Println("SERVER START")
 
+	// out, err := cli.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{ShowStdout: true})
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	//stdcopy.StdCopy(os.Stdout, os.Stderr, out)
+
 	config := &ssh.ServerConfig{
 		// Remove to disable password auth.
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
@@ -147,7 +161,72 @@ func main() {
 		}
 		//term := terminal.NewTerminal(channel, "> ")
 
+		fromcont := make(chan ([]byte))
+		tocont := make(chan ([]byte))
+
 		go func() {
+			///////////////
+
+			ctx := context.Background()
+			cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+			if err != nil {
+				panic(err)
+			}
+
+			reader, err := cli.ImagePull(ctx, "docker.io/library/alpine", types.ImagePullOptions{})
+			if err != nil {
+				panic(err)
+			}
+
+			defer reader.Close()
+			io.Copy(os.Stdout, reader)
+			fmt.Println("CREATE")
+
+			resp, err := cli.ContainerCreate(ctx, &container.Config{
+				Image:        "alpine",
+				Cmd:          []string{"/bin/sh"},
+				AttachStderr: true,
+				AttachStdin:  true,
+				Tty:          true,
+				AttachStdout: true,
+				OpenStdin:    true,
+			}, nil, nil, nil, "")
+			if err != nil {
+				panic(err)
+			}
+			fmt.Println("START")
+			if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+				panic(err)
+			}
+			// fmt.Println("WAIT")
+			// statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+			// select {
+			// case err := <-errCh:
+			// 	if err != nil {
+			// 		panic(err)
+			// 	}
+			// case <-statusCh:
+			// }
+			// fmt.Println("STARTED")
+
+			cattopts := types.ContainerAttachOptions{
+				Stdin:  true,
+				Stdout: true,
+				Stderr: true,
+				Stream: true,
+			}
+
+			hjresp, err := cli.ContainerAttach(ctx, resp.ID, cattopts)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+
+			fmt.Println(hjresp.Conn)
+
+			/////////////
+			fmt.Println("SSH START")
+
 			_, chans, reqs, err := ssh.NewServerConn(nConn, config)
 			if err != nil {
 				log.Fatal("failed to handshake: ", err)
@@ -191,6 +270,21 @@ func main() {
 
 				term := terminal.NewTerminal(channel, "> ")
 
+				// Write to docker container
+				go func(w io.WriteCloser) {
+					for {
+						data, ok := <-tocont
+						//log.Println("Received to send to docker", string(data))
+						if !ok {
+							fmt.Println("!ok")
+							w.Close()
+							return
+						}
+						fmt.Println("Writing to cont")
+						w.Write(append(data, '\n'))
+					}
+				}(hjresp.Conn)
+
 				go func() {
 					defer channel.Close()
 					for {
@@ -198,7 +292,44 @@ func main() {
 						if err != nil {
 							break
 						}
+
+						// HOW TO GET THIS INPUT TO CONTAINER???
+
 						fmt.Println("INPUT:", line)
+						//	term.Write([]byte("asfsad"))
+						tocont <- []byte(line)
+					}
+				}()
+
+				go func() {
+					for {
+
+						data := <-fromcont
+						_, err = term.Write(data)
+						if err != nil {
+							fmt.Println("Conn write error, ", err)
+						}
+					}
+				}()
+
+				go func() {
+					delim := []byte("\n")
+					for {
+
+						data := []byte{}
+						data, err := hjresp.Reader.ReadBytes(delim[0])
+						if err == nil {
+							fmt.Println("READ")
+							fromcont <- data
+						} else {
+							fmt.Println("NOP ON READ")
+						}
+						// hjresp.Conn.SetReadDeadline(time.Time{})
+						// n, err := hjresp.Conn.Read(data)
+						// if err != nil {
+						// 	fmt.Println("Conn read error, ", err)
+						// }
+
 					}
 				}()
 			}
