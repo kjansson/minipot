@@ -171,6 +171,16 @@ func main() {
 		}
 		//term := terminal.NewTerminal(channel, "> ")
 
+		loggingChannel := make(chan string, 100)
+
+		go func() {
+			for {
+				logLine := <-loggingChannel
+				fmt.Println(logLine)
+			}
+
+		}()
+
 		go func() {
 			///////////////
 			fromcont := make(chan ([]byte))
@@ -346,6 +356,8 @@ func main() {
 			<-rCtx.Done()
 			fmt.Println("DONE")
 			nConn.Close()
+
+			fmt.Println("SAVING STUFF HERE")
 
 		}()
 	}
