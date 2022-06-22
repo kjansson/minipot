@@ -1,3 +1,3 @@
 # minipot
 
-Just playing around with the ssh libraries, plan was to make a minimalistic ssh-honeypot
+Minipot is a fake SSH server front which allows entry randomly, and lets an (assumed) attacker have access to an isolated container. 

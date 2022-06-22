@@ -112,6 +112,16 @@ func main() {
 	// accepted.
 
 	fmt.Println("SERVER START")
+	ctx := context.Background()
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		panic(err)
+	}
+
+	reader, err := cli.ImagePull(ctx, "docker.io/library/alpine", types.ImagePullOptions{})
+	if err != nil {
+		panic(err)
+	}
 
 	// out, err := cli.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{ShowStdout: true})
 	// if err != nil {
@@ -161,22 +171,15 @@ func main() {
 		}
 		//term := terminal.NewTerminal(channel, "> ")
 
-		fromcont := make(chan ([]byte))
-		tocont := make(chan ([]byte))
-
 		go func() {
 			///////////////
+			fromcont := make(chan ([]byte))
+			tocont := make(chan ([]byte))
 
-			ctx := context.Background()
-			cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-			if err != nil {
-				panic(err)
-			}
-
-			reader, err := cli.ImagePull(ctx, "docker.io/library/alpine", types.ImagePullOptions{})
-			if err != nil {
-				panic(err)
-			}
+			// ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*30))
+			// defer cancel()
+			newCtx := context.Background()
+			rCtx, cancel := context.WithCancel(newCtx)
 
 			defer reader.Close()
 			io.Copy(os.Stdout, reader)
@@ -190,7 +193,11 @@ func main() {
 				Tty:          true,
 				AttachStdout: true,
 				OpenStdin:    true,
-			}, nil, nil, nil, "")
+			},
+				&container.HostConfig{
+					AutoRemove:  true,
+					NetworkMode: "none",
+				}, nil, nil, "")
 			if err != nil {
 				panic(err)
 			}
@@ -198,141 +205,148 @@ func main() {
 			if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 				panic(err)
 			}
-			// fmt.Println("WAIT")
-			// statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
-			// select {
-			// case err := <-errCh:
-			// 	if err != nil {
-			// 		panic(err)
-			// 	}
-			// case <-statusCh:
-			// }
-			// fmt.Println("STARTED")
 
-			cattopts := types.ContainerAttachOptions{
-				Stdin:  true,
-				Stdout: true,
-				Stderr: true,
-				Stream: true,
-			}
+			go func() {
 
-			hjresp, err := cli.ContainerAttach(ctx, resp.ID, cattopts)
-			if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
-			}
+				timeoutchan := make(chan bool)
+				go func() {
+					for {
+						select {
+						case <-timeoutchan:
+						case <-time.After(15 * time.Second):
+							cancel()
+						}
+					}
+				}()
+				// fmt.Println("WAIT")
+				// statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+				// select {
+				// case err := <-errCh:
+				// 	if err != nil {
+				// 		panic(err)
+				// 	}
+				// case <-statusCh:
+				// }
+				// fmt.Println("STARTED")
 
-			fmt.Println(hjresp.Conn)
-
-			/////////////
-			fmt.Println("SSH START")
-
-			_, chans, reqs, err := ssh.NewServerConn(nConn, config)
-			if err != nil {
-				log.Fatal("failed to handshake: ", err)
-			}
-
-			go ssh.DiscardRequests(reqs)
-
-			// Service the incoming Channel channel.
-			for newChannel := range chans {
-				// Channels have a type, depending on the application level
-				// protocol intended. In the case of a shell, the type is
-				// "session" and ServerShell may be used to present a simple
-				// terminal interface.
-				if newChannel.ChannelType() != "session" {
-					newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
-					continue
+				cattopts := types.ContainerAttachOptions{
+					Stdin:  true,
+					Stdout: true,
+					Stderr: true,
+					Stream: true,
 				}
-				channel, requests, err := newChannel.Accept()
+
+				hjresp, err := cli.ContainerAttach(ctx, resp.ID, cattopts)
 				if err != nil {
-					log.Fatalf("Could not accept channel: %v", err)
+					fmt.Println(err)
+					os.Exit(1)
 				}
 
-				// Sessions have out-of-band requests such as "shell",
-				// "pty-req" and "env".  Here we handle only the
-				// "shell" request.
-				go func(in <-chan *ssh.Request) {
-					for req := range in {
-						// fmt.Println("Type:", req.Type)
-						// fmt.Println("WR: ", req.WantReply)
-						// fmt.Println("PL: ", req.Payload)
-						// req.Reply(req.Type == "shell", nil)
-						// //req.Reply(req.Type == "pty-req", nil)
-						fmt.Println("SSH REQUEST: ", req.Type)
-						fmt.Println("SSH REQUEST PAYLOAD: ", string(req.Payload))
-						switch req.Type {
-						case "shell":
-							req.Reply(true, nil)
-						}
+				fmt.Println(hjresp.Conn)
+
+				/////////////
+				fmt.Println("SSH START")
+
+				_, chans, reqs, err := ssh.NewServerConn(nConn, config)
+				if err != nil {
+					log.Fatal("failed to handshake: ", err)
+				}
+
+				go ssh.DiscardRequests(reqs)
+
+				// Service the incoming Channel channel.
+				for newChannel := range chans {
+					// Channels have a type, depending on the application level
+					// protocol intended. In the case of a shell, the type is
+					// "session" and ServerShell may be used to present a simple
+					// terminal interface.
+					if newChannel.ChannelType() != "session" {
+						newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
+						continue
 					}
-				}(requests)
-
-				term := terminal.NewTerminal(channel, "> ")
-
-				// Write to docker container
-				go func(w io.WriteCloser) {
-					for {
-						data, ok := <-tocont
-						//log.Println("Received to send to docker", string(data))
-						if !ok {
-							fmt.Println("!ok")
-							w.Close()
-							return
-						}
-						fmt.Println("Writing to cont")
-						w.Write(append(data, '\n'))
+					channel, requests, err := newChannel.Accept()
+					if err != nil {
+						log.Fatalf("Could not accept channel: %v", err)
 					}
-				}(hjresp.Conn)
 
-				go func() {
-					defer channel.Close()
-					for {
-						line, err := term.ReadLine()
-						if err != nil {
-							break
+					// Sessions have out-of-band requests such as "shell",
+					// "pty-req" and "env".  Here we handle only the
+					// "shell" request.
+					go func(in <-chan *ssh.Request) {
+						for req := range in {
+							// fmt.Println("Type:", req.Type)
+							// fmt.Println("WR: ", req.WantReply)
+							// fmt.Println("PL: ", req.Payload)
+							// req.Reply(req.Type == "shell", nil)
+							// //req.Reply(req.Type == "pty-req", nil)
+							fmt.Println("SSH REQUEST: ", req.Type)
+							fmt.Println("SSH REQUEST PAYLOAD: ", string(req.Payload))
+							switch req.Type {
+							case "shell":
+								req.Reply(true, nil)
+							}
 						}
+					}(requests)
 
-						// HOW TO GET THIS INPUT TO CONTAINER???
+					term := terminal.NewTerminal(channel, "/ # ")
 
-						fmt.Println("INPUT:", line)
-						//	term.Write([]byte("asfsad"))
-						tocont <- []byte(line)
-					}
-				}()
-
-				go func() {
-					for {
-
-						data := <-fromcont
-						_, err = term.Write(data)
-						if err != nil {
-							fmt.Println("Conn write error, ", err)
+					// Write to docker container
+					go func(w io.WriteCloser) {
+						for {
+							data, ok := <-tocont
+							//log.Println("Received to send to docker", string(data))
+							if !ok {
+								fmt.Println("!ok")
+								w.Close()
+								return
+							}
+							w.Write(append(data, '\n'))
 						}
-					}
-				}()
+					}(hjresp.Conn)
 
-				go func() {
-					delim := []byte("\n")
-					for {
-
-						data := []byte{}
-						data, err := hjresp.Reader.ReadBytes(delim[0])
-						if err == nil {
-							fmt.Println("READ")
-							fromcont <- data
-						} else {
-							fmt.Println("NOP ON READ")
+					go func() {
+						defer channel.Close()
+						for {
+							line, err := term.ReadLine()
+							if err != nil {
+								break
+							}
+							tocont <- []byte(line)
 						}
-						// hjresp.Conn.SetReadDeadline(time.Time{})
-						// n, err := hjresp.Conn.Read(data)
-						// if err != nil {
-						// 	fmt.Println("Conn read error, ", err)
-						// }
+					}()
 
-					}
-				}()
-			}
+					go func() {
+						for {
+
+							data := <-fromcont
+							_, err = term.Write(data)
+							if err != nil {
+								fmt.Println("Conn write error, ", err)
+							}
+							timeoutchan <- true
+						}
+					}()
+
+					go func() {
+						delim := []byte("\n")
+						for {
+
+							data := []byte{}
+							data, err := hjresp.Reader.ReadBytes(delim[0])
+							if err == nil && len(data) > 1 {
+								fromcont <- data
+							} else {
+								fmt.Println("NOP ON READ")
+							}
+						}
+					}()
+				}
+
+			}()
+			<-rCtx.Done()
+			fmt.Println("DONE")
+			nConn.Close()
+
 		}()
 	}
 }
