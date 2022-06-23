@@ -90,6 +90,11 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	newCtx := context.Background()
 	rCtx, cancel := context.WithCancel(newCtx)
 
+	go func() {
+		time.Sleep(60 * time.Second) // Container timeout
+		cancel()
+	}()
+
 	defer reader.Close()
 	io.Copy(os.Stdout, reader)
 
