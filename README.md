@@ -5,3 +5,4 @@ Minipot is a fake SSH server front which allows entry randomly, and lets an (ass
 
 # todo
 Resource limits
+session timeout
