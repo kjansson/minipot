@@ -59,7 +59,7 @@ func main() {
 		},
 	}
 
-	privateBytes, err := ioutil.ReadFile("id_rsa")
+	privateBytes, err := ioutil.ReadFile("fake_id_rsa")
 	if err != nil {
 		log.Fatal("Failed to load private key: ", err)
 	}

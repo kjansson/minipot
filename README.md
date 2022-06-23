@@ -8,3 +8,4 @@ User input and file system changes are logged.
 # todo
 Resource limits
 session timeout
+more conf flags
