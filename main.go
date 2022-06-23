@@ -100,7 +100,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        image,
-		Cmd:          []string{"/bin/sh"},
 		AttachStderr: true,
 		AttachStdin:  true,
 		Tty:          true,
