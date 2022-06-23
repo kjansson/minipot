@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -111,14 +112,30 @@ func main() {
 	// Once a ServerConfig has been configured, connections can be
 	// accepted.
 
-	fmt.Println("SERVER START")
+	image := flag.String("image", "docker.io/library/alpine", "Image to use as user environment")
+	flag.Parse()
+
+	loggingChannel := make(chan string, 1000)
+	logger := log.New(os.Stderr, fmt.Sprintf("%s:\t", "minipot"), log.Ldate|log.Ltime|log.Lshortfile)
+	//image := "docker.io/library/alpine"
+	go func() {
+		for {
+			logLine := <-loggingChannel
+			logger.Println(logLine)
+		}
+
+	}()
+
+	//fmt.Println("SERVER START")
+	loggingChannel <- "Starting minipot"
+	loggingChannel <- "Connecting to Docker engine"
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
-
-	reader, err := cli.ImagePull(ctx, "docker.io/library/alpine", types.ImagePullOptions{})
+	loggingChannel <- fmt.Sprintf("Pulling image %s", image)
+	reader, err := cli.ImagePull(ctx, *image, types.ImagePullOptions{})
 	if err != nil {
 		panic(err)
 	}
@@ -138,8 +155,10 @@ func main() {
 			// if c.User() == "testuser" && string(pass) == "tiger" {
 			// 	return nil, nil
 			// }
-			fmt.Println("AUTH: ", c.User(), "/", string(pass))
+			loggingChannel <- fmt.Sprintf("Auth attempt: Username %s, password %s\n", c.User(), string(pass))
+			//fmt.Println("AUTH: ", c.User(), "/", string(pass))
 			if time.Now().Second()%2 == 0 {
+				loggingChannel <- "Accepting connection"
 				return nil, nil
 			}
 			return nil, fmt.Errorf("password rejected for %q", c.User())
@@ -158,213 +177,214 @@ func main() {
 
 	config.AddHostKey(private)
 
+	loggingChannel <- "Serving SSH"
 	listener, err := net.Listen("tcp", "0.0.0.0:22")
 	if err != nil {
 		log.Fatal("failed to listen for connection: ", err)
 	}
 
+	sid := 0
 	for {
 
 		nConn, err := listener.Accept()
 		if err != nil {
 			log.Fatal("failed to accept incoming connection: ", err)
 		}
-
-		go handleClient(nConn, reader, cli, config)
-		//term := terminal.NewTerminal(channel, "> ")
-
-		// loggingChannel := make(chan string, 100)
-
-		// go func() {
-		// 	for {
-		// 		logLine := <-loggingChannel
-		// 		fmt.Println(logLine)
-		// 	}
-
-		// }()
-
+		loggingChannel <- fmt.Sprintf("New SSH session (%d)\n", sid)
+		go handleClient(nConn, reader, cli, config, loggingChannel, *image, fmt.Sprintf("SESSION%d", sid))
+		// term := terminal.NewTerminal(channel, "> ")
+		sid++
 	}
 }
 
-func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig) {
+func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, loggingChannel chan string, image string, sessionId string) {
+
+	ctx := context.Background()
+	///////////////
+	fromcont := make(chan ([]byte))
+	tocont := make(chan ([]byte))
+
+	// ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*30))
+	// defer cancel()
+	newCtx := context.Background()
+	rCtx, cancel := context.WithCancel(newCtx)
+
+	defer reader.Close()
+	io.Copy(os.Stdout, reader)
+
+	resp, err := cli.ContainerCreate(ctx, &container.Config{
+		Image:        image,
+		Cmd:          []string{"/bin/sh"},
+		AttachStderr: true,
+		AttachStdin:  true,
+		Tty:          true,
+		AttachStdout: true,
+		OpenStdin:    true,
+	},
+		&container.HostConfig{
+			AutoRemove:  true,
+			NetworkMode: "none",
+		}, nil, nil, "")
+	if err != nil {
+		panic(err)
+	}
+	if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+		panic(err)
+	}
+
 	go func() {
-		ctx := context.Background()
-		///////////////
-		fromcont := make(chan ([]byte))
-		tocont := make(chan ([]byte))
 
-		// ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*30))
-		// defer cancel()
-		newCtx := context.Background()
-		rCtx, cancel := context.WithCancel(newCtx)
-
-		defer reader.Close()
-		io.Copy(os.Stdout, reader)
-		fmt.Println("CREATE")
-
-		resp, err := cli.ContainerCreate(ctx, &container.Config{
-			Image:        "alpine",
-			Cmd:          []string{"/bin/sh"},
-			AttachStderr: true,
-			AttachStdin:  true,
-			Tty:          true,
-			AttachStdout: true,
-			OpenStdin:    true,
-		},
-			&container.HostConfig{
-				AutoRemove:  true,
-				NetworkMode: "none",
-			}, nil, nil, "")
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println("START")
-		if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-			panic(err)
-		}
-
+		timeoutchan := make(chan bool)
 		go func() {
+			for {
+				select {
+				case <-timeoutchan:
+				case <-time.After(15 * time.Second):
+					cancel()
+				}
+			}
+		}()
+		// fmt.Println("WAIT")
+		// statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+		// select {
+		// case err := <-errCh:
+		// 	if err != nil {
+		// 		panic(err)
+		// 	}
+		// case <-statusCh:
+		// }
+		// fmt.Println("STARTED")
 
-			timeoutchan := make(chan bool)
+		cattopts := types.ContainerAttachOptions{
+			Stdin:  true,
+			Stdout: true,
+			Stderr: true,
+			Stream: true,
+		}
+
+		hjresp, err := cli.ContainerAttach(ctx, resp.ID, cattopts)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		fmt.Println(hjresp.Conn)
+
+		/////////////
+		_, chans, reqs, err := ssh.NewServerConn(nConn, config)
+		if err != nil {
+			log.Fatal("failed to handshake: ", err)
+		}
+
+		go ssh.DiscardRequests(reqs)
+
+		// Service the incoming Channel channel.
+		for newChannel := range chans {
+			// Channels have a type, depending on the application level
+			// protocol intended. In the case of a shell, the type is
+			// "session" and ServerShell may be used to present a simple
+			// terminal interface.
+			if newChannel.ChannelType() != "session" {
+				newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
+				continue
+			}
+			channel, requests, err := newChannel.Accept()
+			if err != nil {
+				log.Fatalf("Could not accept channel: %v", err)
+			}
+
+			// Sessions have out-of-band requests such as "shell",
+			// "pty-req" and "env".  Here we handle only the
+			// "shell" request.
+			go func(in <-chan *ssh.Request) {
+				for req := range in {
+					// fmt.Println("Type:", req.Type)
+					// fmt.Println("WR: ", req.WantReply)
+					// fmt.Println("PL: ", req.Payload)
+					// req.Reply(req.Type == "shell", nil)
+					// //req.Reply(req.Type == "pty-req", nil)
+
+					switch req.Type {
+					case "shell":
+						req.Reply(true, nil)
+					}
+				}
+			}(requests)
+
+			term := terminal.NewTerminal(channel, "/ # ")
+
+			// Write to docker container
+			go func(w io.WriteCloser) {
+				for {
+					data, ok := <-tocont
+					//log.Println("Received to send to docker", string(data))
+					if !ok {
+						w.Close()
+						return
+					}
+					w.Write(append(data, '\n'))
+				}
+			}(hjresp.Conn)
+
+			go func() {
+				defer channel.Close()
+				for {
+					line, err := term.ReadLine()
+					if err != nil {
+						break
+					}
+					loggingChannel <- fmt.Sprintf("(%s) User input: %s\n", sessionId, line)
+					tocont <- []byte(line)
+				}
+			}()
+
 			go func() {
 				for {
-					select {
-					case <-timeoutchan:
-					case <-time.After(15 * time.Second):
-						cancel()
+
+					data := <-fromcont
+					_, err = term.Write(data)
+					if err != nil {
+						fmt.Println("Conn write error, ", err)
+					} else {
+						timeoutchan <- true
 					}
 				}
 			}()
-			// fmt.Println("WAIT")
-			// statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
-			// select {
-			// case err := <-errCh:
-			// 	if err != nil {
-			// 		panic(err)
-			// 	}
-			// case <-statusCh:
-			// }
-			// fmt.Println("STARTED")
 
-			cattopts := types.ContainerAttachOptions{
-				Stdin:  true,
-				Stdout: true,
-				Stderr: true,
-				Stream: true,
-			}
+			go func() {
+				delim := []byte("\n")
+				for {
 
-			hjresp, err := cli.ContainerAttach(ctx, resp.ID, cattopts)
-			if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
-			}
-
-			fmt.Println(hjresp.Conn)
-
-			/////////////
-			fmt.Println("SSH START")
-
-			_, chans, reqs, err := ssh.NewServerConn(nConn, config)
-			if err != nil {
-				log.Fatal("failed to handshake: ", err)
-			}
-
-			go ssh.DiscardRequests(reqs)
-
-			// Service the incoming Channel channel.
-			for newChannel := range chans {
-				// Channels have a type, depending on the application level
-				// protocol intended. In the case of a shell, the type is
-				// "session" and ServerShell may be used to present a simple
-				// terminal interface.
-				if newChannel.ChannelType() != "session" {
-					newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
-					continue
+					data := []byte{}
+					data, err := hjresp.Reader.ReadBytes(delim[0])
+					if err == nil && len(data) > 1 {
+						fromcont <- data
+					} else {
+						fmt.Println("NOP ON READ")
+					}
 				}
-				channel, requests, err := newChannel.Accept()
-				if err != nil {
-					log.Fatalf("Could not accept channel: %v", err)
-				}
-
-				// Sessions have out-of-band requests such as "shell",
-				// "pty-req" and "env".  Here we handle only the
-				// "shell" request.
-				go func(in <-chan *ssh.Request) {
-					for req := range in {
-						// fmt.Println("Type:", req.Type)
-						// fmt.Println("WR: ", req.WantReply)
-						// fmt.Println("PL: ", req.Payload)
-						// req.Reply(req.Type == "shell", nil)
-						// //req.Reply(req.Type == "pty-req", nil)
-						fmt.Println("SSH REQUEST: ", req.Type)
-						fmt.Println("SSH REQUEST PAYLOAD: ", string(req.Payload))
-						switch req.Type {
-						case "shell":
-							req.Reply(true, nil)
-						}
-					}
-				}(requests)
-
-				term := terminal.NewTerminal(channel, "/ # ")
-
-				// Write to docker container
-				go func(w io.WriteCloser) {
-					for {
-						data, ok := <-tocont
-						//log.Println("Received to send to docker", string(data))
-						if !ok {
-							fmt.Println("!ok")
-							w.Close()
-							return
-						}
-						w.Write(append(data, '\n'))
-					}
-				}(hjresp.Conn)
-
-				go func() {
-					defer channel.Close()
-					for {
-						line, err := term.ReadLine()
-						if err != nil {
-							break
-						}
-						tocont <- []byte(line)
-					}
-				}()
-
-				go func() {
-					for {
-
-						data := <-fromcont
-						_, err = term.Write(data)
-						if err != nil {
-							fmt.Println("Conn write error, ", err)
-						}
-						timeoutchan <- true
-					}
-				}()
-
-				go func() {
-					delim := []byte("\n")
-					for {
-
-						data := []byte{}
-						data, err := hjresp.Reader.ReadBytes(delim[0])
-						if err == nil && len(data) > 1 {
-							fromcont <- data
-						} else {
-							fmt.Println("NOP ON READ")
-						}
-					}
-				}()
-			}
-
-		}()
-		<-rCtx.Done()
-		fmt.Println("DONE")
-		nConn.Close()
-
-		fmt.Println("SAVING STUFF HERE")
+			}()
+		}
 
 	}()
+	<-rCtx.Done()
+	loggingChannel <- fmt.Sprintf("(%s) SSH session ended\n", sessionId)
+	nConn.Close()
+
+	//fmt.Println("SAVING STUFF HERE")
+
+	cli.ContainerPause(ctx, resp.ID)
+
+	diffs, err := cli.ContainerDiff(ctx, resp.ID)
+	for _, d := range diffs {
+		loggingChannel <- fmt.Sprintf("(%s) Modified file: %s\n", sessionId, d.Path)
+	}
+	loggingChannel <- fmt.Sprintf("(%s) Killing container\n", sessionId)
+	err = cli.ContainerKill(ctx, resp.ID, "SIGINT")
+	if err != nil {
+		fmt.Println("container kill err: ", err)
+	} else {
+		loggingChannel <- fmt.Sprintf("(%s) All done\n", sessionId)
+	}
+
 }
