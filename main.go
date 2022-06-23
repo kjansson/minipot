@@ -24,25 +24,16 @@ func main() {
 	image := flag.String("image", "docker.io/library/alpine", "Image to use as user environment")
 	flag.Parse()
 
-	loggingChannel := make(chan string, 1000)
 	logger := log.New(os.Stderr, fmt.Sprintf("%s:\t", "minipot"), log.Ldate|log.Ltime|log.Lshortfile)
-	go func() {
-		for {
-			logLine := <-loggingChannel
-			logger.Println(logLine)
-		}
 
-	}()
-
-	//fmt.Println("SERVER START")
-	loggingChannel <- "Starting minipot"
-	loggingChannel <- "Connecting to Docker engine"
+	logger.Println("Starting minipot")
+	logger.Println("Connecting to Docker engine")
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
-	loggingChannel <- fmt.Sprintf("Pulling image %s", image)
+	logger.Printf("Pulling image %s", *image)
 	reader, err := cli.ImagePull(ctx, *image, types.ImagePullOptions{})
 	if err != nil {
 		panic(err)
@@ -50,9 +41,9 @@ func main() {
 
 	config := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			loggingChannel <- fmt.Sprintf("Auth attempt: Username %s, password %s\n", c.User(), string(pass))
+			logger.Printf("Auth attempt: Username %s, password %s\n", c.User(), string(pass))
 			if time.Now().Second()%2 == 0 {
-				loggingChannel <- "Accepting connection"
+				logger.Println("Accepting connection")
 				return nil, nil
 			}
 			return nil, fmt.Errorf("password rejected for %q", c.User())
@@ -71,7 +62,7 @@ func main() {
 
 	config.AddHostKey(private)
 
-	loggingChannel <- "Serving SSH"
+	logger.Println("Serving SSH")
 	listener, err := net.Listen("tcp", "0.0.0.0:22")
 	if err != nil {
 		log.Fatal("failed to listen for connection: ", err)
@@ -84,13 +75,13 @@ func main() {
 		if err != nil {
 			log.Fatal("failed to accept incoming connection: ", err)
 		}
-		loggingChannel <- fmt.Sprintf("New SSH session (%d)\n", sid)
-		go handleClient(nConn, reader, cli, config, loggingChannel, *image, fmt.Sprintf("SESSION%d", sid))
+		logger.Printf("New SSH session (SESSION-%d)\n", sid)
+		go handleClient(nConn, reader, cli, config, *image, logger, fmt.Sprintf("SESSION-%d", sid))
 		sid++
 	}
 }
 
-func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, loggingChannel chan string, image string, sessionId string) {
+func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, image string, logger *log.Logger, sessionId string) {
 
 	ctx := context.Background()
 	fromcont := make(chan ([]byte))
@@ -129,7 +120,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			for {
 				select {
 				case <-timeoutchan:
-				case <-time.After(15 * time.Second):
+				case <-time.After(15 * time.Second): // Make this configurable
 					cancel()
 				}
 			}
@@ -144,7 +135,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 
 		hjresp, err := cli.ContainerAttach(ctx, resp.ID, cattopts)
 		if err != nil {
-			fmt.Println(err)
+			logger.Println("Error while attaching to container:", err)
 			os.Exit(1)
 		}
 
@@ -196,7 +187,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 					if err != nil {
 						break
 					}
-					loggingChannel <- fmt.Sprintf("(%s) User input: %s\n", sessionId, line)
+					logger.Printf("(%s) User input: %s\n", sessionId, line)
 					tocont <- []byte(line)
 				}
 			}()
@@ -206,9 +197,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 
 					data := <-fromcont
 					_, err = term.Write(data)
-					if err != nil {
-						fmt.Println("Conn write error, ", err)
-					} else {
+					if err == nil {
 						timeoutchan <- true
 					}
 				}
@@ -222,8 +211,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 					data, err := hjresp.Reader.ReadBytes(delim[0])
 					if err == nil && len(data) > 1 {
 						fromcont <- data
-					} else {
-						fmt.Println("NOP ON READ")
 					}
 				}
 			}()
@@ -231,20 +218,20 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 
 	}()
 	<-rCtx.Done()
-	loggingChannel <- fmt.Sprintf("(%s) SSH session ended\n", sessionId)
+	logger.Printf("(%s) SSH session ended\n", sessionId)
 	nConn.Close()
 
 	cli.ContainerPause(ctx, resp.ID)
 
 	diffs, err := cli.ContainerDiff(ctx, resp.ID)
 	for _, d := range diffs {
-		loggingChannel <- fmt.Sprintf("(%s) Modified file: %s\n", sessionId, d.Path)
+		logger.Printf("(%s) Modified file: %s\n", sessionId, d.Path)
 	}
-	loggingChannel <- fmt.Sprintf("(%s) Killing container\n", sessionId)
+	logger.Printf("(%s) Killing container\n", sessionId)
 	err = cli.ContainerKill(ctx, resp.ID, "SIGINT")
 	if err != nil {
-		fmt.Println("container kill err: ", err)
+		logger.Println("Error while killing container: ", err)
 	} else {
-		loggingChannel <- fmt.Sprintf("(%s) All done\n", sessionId)
+		logger.Printf("(%s) All done\n", sessionId)
 	}
 }
