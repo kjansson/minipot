@@ -83,6 +83,7 @@ func main() {
 
 func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, image string, logger *log.Logger, sessionId string) {
 
+	//var mutex sync.RWMutex
 	ctx := context.Background()
 	fromcont := make(chan ([]byte))
 	tocont := make(chan ([]byte))
@@ -91,7 +92,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	rCtx, cancel := context.WithCancel(newCtx)
 
 	go func() {
-		time.Sleep(60 * time.Second) // Container timeout
+		time.Sleep(600 * time.Second) // Container timeout
 		cancel()
 	}()
 
@@ -172,19 +173,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 
 			term := terminal.NewTerminal(channel, "/ # ")
 
-			// Write to docker container
-			go func(w io.WriteCloser) {
-				for {
-					data, ok := <-tocont
-					if !ok {
-						w.Close()
-						return
-					}
-					w.Write(append(data, '\n'))
-				}
-			}(hjresp.Conn)
-
-			go func() {
+			go func() { // READ FROM TERMINAL
 				defer channel.Close()
 				for {
 					line, err := term.ReadLine()
@@ -196,26 +185,61 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				}
 			}()
 
-			go func() {
+			// Write to docker container
+			go func(w io.WriteCloser) { // WRITE TO CONTAINER INPUT
 				for {
+					data, ok := <-tocont
+					if !ok {
+						w.Close()
+						return
+					}
+					w.Write(append(data, '\n'))
+				}
+			}(hjresp.Conn)
 
+			go func() { // WRITE OUTPUT TO USER
+				for {
 					data := <-fromcont
-					_, err = term.Write(data)
+					fmt.Println("DEBUG DATA:", string(data))
+					//if string(data) != prompt {
+					//fmt.Println("Is not prompt")
+					_, err = term.Write(data) // BACK TO USER
 					if err == nil {
 						timeoutchan <- true
+					} else {
+						fmt.Println(err)
 					}
+
+					//mutex.Lock()
+					// fmt.Println("Got lock access for prompt")
+
+					// prompt, err := getPrompt(hjresp.Conn, hjresp, logger)
+					// //	mutex.Unlock()
+					// if err != nil {
+					// 	fmt.Println("Warning: error while reading for prompt:", err)
+					// } else {
+					// 	fmt.Println("DEBUG PROMPT: ", prompt)
+					// 	term.SetPrompt(prompt)
+					// }
+
+					//	}
+
 				}
 			}()
 
-			go func() {
+			go func() { // READ OUTPUT FROM CONTAINER
 				delim := []byte("\n")
 				for {
-
+					//	mutex.Lock()
+					fmt.Println("Got lock access for read from container")
 					data := []byte{}
-					data, err := hjresp.Reader.ReadBytes(delim[0])
+					data, err = hjresp.Reader.ReadBytes(delim[0])
+					fmt.Println("DEBUG: ", string(data))
 					if err == nil && len(data) > 1 {
 						fromcont <- data
 					}
+					//	mutex.Unlock()
+
 				}
 			}()
 		}
@@ -238,4 +262,19 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	} else {
 		logger.Printf("(%s) All done\n", sessionId)
 	}
+}
+
+func getPrompt(w io.WriteCloser, resp types.HijackedResponse, logger *log.Logger) (string, error) {
+	data := []byte("\n")
+	n, err := w.Write(data)
+	if err == nil {
+		return "", err
+	}
+	fmt.Println("WROTE ", n, " BYTES FOR PROMPT")
+	prompt, err := resp.Reader.ReadBytes(data[0])
+	if err == nil {
+		return "", err
+	}
+	fmt.Println("READ ", len(prompt), "BYTES FOR PROMPT")
+	return string(prompt), nil
 }
