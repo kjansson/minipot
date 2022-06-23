@@ -19,8 +19,3 @@ go build
 ```
 -image # Which image to run for user sessions. Default is "docker.io/library/alpine".
 ```
-
-# todo
-Resource limits
-session timeout
-more conf flags
