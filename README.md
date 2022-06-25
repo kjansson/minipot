@@ -1,6 +1,6 @@
 # minipot
 
-Minipot is a simplistic SSH honeypot written in Go
+Minipot is a minimalistic SSH honeypot written in Go
 
 # How does it work?
 Minipot is a "fake" SSH server which accepts login as root with any password after a certain number of attempts.
