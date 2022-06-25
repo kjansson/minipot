@@ -34,6 +34,7 @@ go build
 ```
 
 # How to run it
+
 ```
 # Run with default settings
 ./minipot
@@ -44,3 +45,7 @@ go build
 
 # Session logs
 Logs will be outputted to the chosen path, one for each SSH session. It will contain information about authentication attempts, user input (keystrokes), and files that have been modified.
+
+# Other information
+
+By default, containers have no network connection. This can be changed using the flag -networkmode, but do so at your own risk.
