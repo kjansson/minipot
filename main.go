@@ -41,24 +41,25 @@ type authAttempt struct {
 }
 
 type sessionData struct {
-	id                int
-	globalId          string
-	user              string
-	password          string
-	hostname          string
-	sourceIp          string
-	clientVersion     string
-	timeStart         time.Time
-	timeEnd           time.Time
-	authAttempts      []authAttempt
-	userInput         []input
-	modifiedFiles     []string
-	networkMode       string
-	image             string
-	sessionTimeout    int
-	inputTimeout      int
-	timedOutBySession bool
-	timedOutByNoInput bool
+	id                   int
+	globalId             string
+	user                 string
+	password             string
+	hostname             string
+	sourceIp             string
+	clientVersion        string
+	timeStart            time.Time
+	timeEnd              time.Time
+	authAttempts         []authAttempt
+	userInput            []input
+	modifiedFiles        []string
+	networkMode          string
+	image                string
+	sessionTimeout       int
+	inputTimeout         int
+	timedOutBySession    bool
+	timedOutByNoInput    bool
+	environmentVariables []string
 }
 
 func main() {
@@ -71,6 +72,7 @@ func main() {
 	networkmode := flag.String("networkmode", "none", "Docker network mode to use for containers. Defaults to 'none'. Use with caution!")
 	sessionTimeout := flag.Int("sessiontimeout", 1800, "Timeout in seconds before closing a session. Default to 1800.")
 	inputTimeout := flag.Int("inputtimeout", 300, "Timeout in seconds before closing a session when no input is detected. Default to 300.")
+	envVars := flag.String("envvars", "", "Environment variables to pass on to container, in the format VAR=val and separated by ','. If you want to do some custom stuff in your container.")
 
 	flag.Parse()
 
@@ -78,6 +80,12 @@ func main() {
 	if *globalSessionId == "" {
 		tstr := strconv.Itoa(int(time.Now().Unix()))
 		globalSessionId = &tstr
+	}
+
+	environmentVariables := strings.Split(*envVars, ",")
+
+	for _, x := range environmentVariables {
+		logger.Println("ENV:", x)
 	}
 
 	if *networkmode != "none" &&
@@ -133,14 +141,15 @@ func main() {
 		}
 
 		session := sessionData{
-			globalId:       *globalSessionId,
-			id:             sid,
-			timeStart:      time.Now(),
-			hostname:       *hostname,
-			networkMode:    *networkmode,
-			image:          *image,
-			sessionTimeout: *sessionTimeout,
-			inputTimeout:   *inputTimeout,
+			globalId:             *globalSessionId,
+			id:                   sid,
+			timeStart:            time.Now(),
+			hostname:             *hostname,
+			networkMode:          *networkmode,
+			image:                *image,
+			sessionTimeout:       *sessionTimeout,
+			inputTimeout:         *inputTimeout,
+			environmentVariables: environmentVariables,
 		}
 
 		config := &ssh.ServerConfig{
@@ -186,6 +195,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		AttachStdout: true,
 		OpenStdin:    true,
 		Hostname:     session.hostname,
+		Env:          session.environmentVariables,
 	},
 		&container.HostConfig{
 			AutoRemove:  true,
