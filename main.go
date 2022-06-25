@@ -170,12 +170,14 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	newCtx := context.Background()
 	rCtx, cancel := context.WithCancel(newCtx)
 
-	logger.Println("Session timeout is set to ", session.sessionTimeout, "seconds.")
-	go func() {
-		time.Sleep(time.Duration(session.sessionTimeout) * time.Second) // Container timeout
-		session.timedOutBySession = true
-		cancel()
-	}()
+	if session.sessionTimeout > 0 {
+		logger.Println("Session timeout is set to ", session.sessionTimeout, "seconds.")
+		go func() {
+			time.Sleep(time.Duration(session.sessionTimeout) * time.Second) // Container timeout
+			session.timedOutBySession = true
+			cancel()
+		}()
+	}
 
 	defer reader.Close()
 	io.Copy(os.Stdout, reader)
@@ -229,16 +231,18 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	go func() {
 
 		timeoutchan := make(chan bool)
-		go func() {
-			for {
-				select {
-				case <-timeoutchan:
-				case <-time.After(time.Duration(session.inputTimeout) * time.Second): // Make this configurable
-					session.timedOutByNoInput = true
-					cancel()
+		if session.inputTimeout > 0 {
+			go func() {
+				for {
+					select {
+					case <-timeoutchan:
+					case <-time.After(time.Duration(session.inputTimeout) * time.Second): // Make this configurable
+						session.timedOutByNoInput = true
+						cancel()
+					}
 				}
-			}
-		}()
+			}()
+		}
 
 		cattopts := types.ContainerAttachOptions{
 			Stdin:  true,
@@ -300,7 +304,9 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 						break
 					}
 					inputChan <- data[0]
-					timeoutchan <- true
+					if session.inputTimeout > 0 {
+						timeoutchan <- true
+					}
 					if n > 0 {
 						if data[0] == 4 { // EOT, we want to catch this to not kill the container
 							cancel()
