@@ -134,8 +134,8 @@ func main() {
 func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, image string, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
 
 	ctx := context.Background()
-	fromContainer := make(chan byte)
-	toContainer := make(chan []byte)
+	//fromContainer := make(chan byte)
+	//toContainer := make(chan []byte)
 
 	newCtx := context.Background()
 	rCtx, cancel := context.WithCancel(newCtx)
@@ -174,7 +174,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		line := ""
 		for {
 			b := <-inputChan
-			fmt.Printf("%d", b)
 			if b == 127 { // DELETE
 				line = fmt.Sprintf("%s<BACKSPACE>", line)
 			} else if b == 9 {
@@ -246,9 +245,12 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				}
 			}(requests)
 
-			go func() { // Read from user terminal
+			go func(w io.WriteCloser) { // Read from terminal and write to container input
+				w.Write(([]byte("\n"))) // Just send a LF to get a prompt at startup
+
 				defer channel.Close()
 				for {
+
 					data := make([]byte, 32)
 					n, err := channel.Read(data)
 					if err != nil {
@@ -262,32 +264,14 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 							cancel()
 							break
 						} else {
-							toContainer <- data
+							w.Write(data)
 						}
 					}
-				}
-			}()
 
-			go func(w io.WriteCloser) { // Write to container input
-				for {
-					data, ok := <-toContainer
-					if !ok {
-						w.Close()
-						return
-					}
-					w.Write(data)
 				}
 			}(hjresp.Conn)
 
-			go func() { // Write output back to user
-
-				for {
-					b := <-fromContainer
-					channel.Write([]byte{b})
-				}
-			}()
-
-			go func() { // Read output from container
+			go func() { // Read output from container and write back to user
 				for {
 
 					data, err := hjresp.Reader.ReadByte()
@@ -296,9 +280,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 						cancel()
 						break
 					}
-
-					fromContainer <- data
-
+					channel.Write([]byte{data})
 				}
 			}()
 		}
