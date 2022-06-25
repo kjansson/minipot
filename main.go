@@ -125,6 +125,13 @@ func main() {
 
 	sid := 0
 	for {
+
+		nConn, err := listener.Accept()
+		if err != nil {
+			logger.Println("SSH accept failed: ", err)
+			os.Exit(ERR_SSH_ACCEPT)
+		}
+
 		session := sessionData{
 			globalId:       *globalSessionId,
 			id:             sid,
@@ -136,11 +143,6 @@ func main() {
 			inputTimeout:   *inputTimeout,
 		}
 
-		nConn, err := listener.Accept()
-		if err != nil {
-			logger.Println("SSH accept failed: ", err)
-			os.Exit(ERR_SSH_ACCEPT)
-		}
 		config := &ssh.ServerConfig{
 			PasswordCallback: authCallBackWrapper(&session, *debug, *logger),
 		}
