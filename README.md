@@ -12,6 +12,9 @@ It is dead simple to use, and a single server can host many environments to hand
 * Docker engine running
 * Go for building binary
 
+# Images
+Tested with Ubuntu and Centos. Alpine has some issues.
+
 # Build
 ```
 go mod tidy
