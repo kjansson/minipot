@@ -1,13 +1,12 @@
 # minipot
 
-WIP
-
-Minipot is a minimalistic SSH honeypot
+Minipot is a minimalistic SSH honeypot written in Go
 
 # How does it work?
-Minipot is a fake SSH server which accepts login as root with any password after a certain number of attempts. 
-When a user is "authenticated", a container (with no network connection by default) is started just for this session. The attacker is presented with a fake prompt, and input/output is forwarded to and from the container. The session will timeout after a period of no input, or after a certain amount of time since session start, to not keep containers hanging around forever.
+Minipot is a fake SSH server which accepts login as root with any password after a certain number of attempts.
+When a user is "authenticated", a container is started just for the session. Input/output is forwarded to and from the container. The session will timeout after a period of no input, or after a certain amount of time since session start, to not keep containers hanging around forever.
 All authentication attempts, user input and file system changes are logged.
+It is dead simple to use, and a single server can host many environments to handle sessions from attackers, how many depends on the size of the server and the size of the image used.
 
 # Requirements
 * Docker engine running
@@ -33,7 +32,7 @@ go build
 
 # How to run it
 ```
-# Default settings
+# Run with default settings
 ./minipot
 
 # With some options
