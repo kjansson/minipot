@@ -26,14 +26,20 @@ type input struct {
 }
 
 type authAttempt struct {
-	username string
-	password string
-	time     time.Time
+	username   string
+	password   string
+	time       time.Time
+	successful bool
 }
 
 type sessionData struct {
 	id            int
 	globalId      string
+	user          string
+	password      string
+	hostname      string
+	sourceIp      string
+	clientVersion string
 	timeStart     time.Time
 	timeEnd       time.Time
 	authAttempts  []authAttempt
@@ -47,16 +53,23 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 		if debug {
 			logger.Printf("(DEBUG) Auth attempt: Username %s, password %s\n", c.User(), string(pass))
 		}
+		session.sourceIp = c.RemoteAddr().String()
+		session.clientVersion = string(c.ClientVersion())
 		a := authAttempt{
 			username: c.User(),
 			password: string(pass),
 			time:     time.Now(),
 		}
-		session.authAttempts = append(session.authAttempts, a)
 
-		if len(session.authAttempts) == 2 {
+		if len(session.authAttempts) == 2 && c.User() == "root" {
 			logger.Println("Accepting connection")
+			session.user = c.User()
+			session.password = string(pass)
+			a.successful = true
+			session.authAttempts = append(session.authAttempts, a)
 			return nil, nil
+		} else {
+			session.authAttempts = append(session.authAttempts, a)
 		}
 		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
 	}
@@ -69,6 +82,7 @@ func main() {
 	debug := flag.Bool("debug", false, "Enable debug output.")
 	outputDir := flag.String("outputdir", "./", "Directory to output session log files to.")
 	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
+	hostname := flag.String("hostname", "", "Hostname to use in container. Default is container default.")
 
 	flag.Parse()
 
@@ -114,6 +128,7 @@ func main() {
 			globalId:  *globalSessionId,
 			id:        sid,
 			timeStart: time.Now(),
+			hostname:  *hostname,
 		}
 
 		nConn, err := listener.Accept()
@@ -134,8 +149,6 @@ func main() {
 func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, image string, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
 
 	ctx := context.Background()
-	//fromContainer := make(chan byte)
-	//toContainer := make(chan []byte)
 
 	newCtx := context.Background()
 	rCtx, cancel := context.WithCancel(newCtx)
@@ -155,6 +168,8 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		Tty:          true,
 		AttachStdout: true,
 		OpenStdin:    true,
+		Hostname:     session.hostname,
+		//Cmd:          []string{"/usr/sbin/useradd", "-p", "thisisfake", "-m", session.user},
 	},
 		&container.HostConfig{
 			AutoRemove:  true,
@@ -220,7 +235,8 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 
 		_, chans, reqs, err := ssh.NewServerConn(nConn, config)
 		if err != nil {
-			log.Fatal("failed to handshake: ", err)
+			log.Println("User failed to login: ", err)
+			cancel()
 		}
 
 		go ssh.DiscardRequests(reqs)
@@ -245,7 +261,12 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				}
 			}(requests)
 
+			startReadChan := make(chan bool)
+
 			go func(w io.WriteCloser) { // Read from terminal and write to container input
+
+				startReadChan <- true
+
 				w.Write(([]byte("\n"))) // Just send a LF to get a prompt at startup
 
 				defer channel.Close()
@@ -272,6 +293,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			}(hjresp.Conn)
 
 			go func() { // Read output from container and write back to user
+				<-startReadChan
 				for {
 
 					data, err := hjresp.Reader.ReadByte()
@@ -343,7 +365,11 @@ func createLog(session sessionData, outputDir string) error {
 
 	f.WriteString("Authentication attempts;\n")
 	for i, a := range session.authAttempts {
-		str = fmt.Sprintf("Attempt %d at %s: username: '%s', password '%s'\n", i+1, a.time.Format(time.UnixDate), a.username, a.password)
+		if a.successful {
+			str = fmt.Sprintf("Accepted attempt %d at %s: username: '%s', password '%s'\n", i+1, a.time.Format(time.UnixDate), a.username, a.password)
+		} else {
+			str = fmt.Sprintf("Rejected attempt %d at %s: username: '%s', password '%s'\n", i+1, a.time.Format(time.UnixDate), a.username, a.password)
+		}
 		f.WriteString(str)
 		if err != nil {
 			return err
@@ -370,3 +396,20 @@ func createLog(session sessionData, outputDir string) error {
 
 	return nil
 }
+
+// func createUser(session sessionData, c *bufio.Reader, w io.WriteCloser) error {
+
+// 	str := []byte("useradd -p thisisfake -m " + session.user + "\n")
+// 	_, err := w.Write(str)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	str = []byte("su - " + session.user + "\n") //  > /dev/null 2>&1
+// 	_, err = w.Write(str)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	return nil
+// }

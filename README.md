@@ -22,10 +22,17 @@ go build
 # Arguments
 ```
 -image # Which image to run for user sessions. Default is "docker.io/library/alpine".
+-debug # Set to =true to enable debug output.
+-outputdir # Which path to output session log files to. Defaults to current working directory.
+-id # Global session ID. Used for log file names etc. Defaults to epoch.
+
+```
+
+# Example run
+```
+./minipot -image ubuntu:18.04 -debug=true -outputdir=/var/log/minipot -id=mysession-1
 ```
 
 # WIP / TODO
-* Make prompt look more real
-* Global container timeout
-* More configuration options
 * Support for multiple images
+* User creation in container
