@@ -9,6 +9,8 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -30,18 +32,52 @@ type authAttempt struct {
 }
 
 type sessionData struct {
-	id            string
+	id            int
+	globalId      string
 	timeStart     time.Time
 	timeEnd       time.Time
-	authAttempts  []string
+	authAttempts  []authAttempt
 	userInput     []input
 	modifiedFiles []string
 }
 
+func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+
+	return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+		if debug {
+			logger.Printf("(DEBUG) Auth attempt: Username %s, password %s\n", c.User(), string(pass))
+		}
+		a := authAttempt{
+			username: c.User(),
+			password: string(pass),
+			time:     time.Now(),
+		}
+		session.authAttempts = append(session.authAttempts, a)
+
+		//if time.Now().Second()%2 == 0 {
+		if len(session.authAttempts) == 2 {
+			logger.Println("Accepting connection")
+			return nil, nil
+		}
+		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
+		//return nil, nil
+	}
+
+}
+
 func main() {
 
-	image := flag.String("image", "docker.io/library/alpine", "Image to use as user environment")
+	image := flag.String("image", "docker.io/library/alpine", "Image to use as user environment.")
+	debug := flag.Bool("debug", false, "Enable debug output.")
+	outputDir := flag.String("outputdir", "./", "Directory to output session log files to.")
+	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
+
 	flag.Parse()
+
+	if *globalSessionId == "" {
+		tstr := strconv.Itoa(int(time.Now().Unix()))
+		globalSessionId = &tstr
+	}
 
 	logger := log.New(os.Stderr, fmt.Sprintf("%s:\t", "minipot"), log.Ldate|log.Ltime|log.Lshortfile)
 
@@ -58,17 +94,6 @@ func main() {
 		panic(err)
 	}
 
-	config := &ssh.ServerConfig{
-		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			logger.Printf("Auth attempt: Username %s, password %s\n", c.User(), string(pass))
-			if time.Now().Second()%2 == 0 {
-				logger.Println("Accepting connection")
-				return nil, nil
-			}
-			return nil, fmt.Errorf("password rejected for %q", c.User())
-		},
-	}
-
 	privateBytes, err := ioutil.ReadFile("fake_id_rsa")
 	if err != nil {
 		log.Fatal("Failed to load private key: ", err)
@@ -79,8 +104,6 @@ func main() {
 		log.Fatal("Failed to parse private key: ", err)
 	}
 
-	config.AddHostKey(private)
-
 	logger.Println("Serving SSH")
 	listener, err := net.Listen("tcp", "0.0.0.0:22")
 	if err != nil {
@@ -89,19 +112,28 @@ func main() {
 
 	sid := 0
 	for {
+		session := sessionData{
+			globalId:  *globalSessionId,
+			id:        sid,
+			timeStart: time.Now(),
+		}
 
 		nConn, err := listener.Accept()
 		if err != nil {
 			log.Fatal("failed to accept incoming connection: ", err)
 		}
-		session := sessionData{id: "SESSION-%d"}
-		logger.Printf("New SSH session (%s)\n", session.id)
-		go handleClient(nConn, reader, cli, config, *image, logger, session)
+		config := &ssh.ServerConfig{
+			PasswordCallback: authCallBackWrapper(&session, *debug, *logger),
+		}
+
+		config.AddHostKey(private)
+		logger.Printf("New SSH session (%d)\n", session.id)
+		go handleClient(nConn, reader, cli, config, *image, logger, &session, *outputDir, *debug)
 		sid++
 	}
 }
 
-func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, image string, logger *log.Logger, session sessionData) {
+func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, image string, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
 
 	//var mutex sync.RWMutex
 	ctx := context.Background()
@@ -137,6 +169,26 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		panic(err)
 	}
+
+	inputChan := make(chan byte)
+
+	// Input collector
+	go func() {
+		line := ""
+		for {
+			b := <-inputChan
+			line = fmt.Sprintf("%s%s", line, string(b))
+			if string(b) == "\n" {
+				i := input{
+					data: line,
+					time: time.Now(),
+				}
+				session.userInput = append(session.userInput, i)
+				line = ""
+			}
+		}
+
+	}()
 
 	go func() {
 
@@ -202,11 +254,11 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 						break
 					}
 					if n > 0 {
-						if data[0] == 4 { // EOT
+						if data[0] == 4 { // EOT, we want to catch this to not kill the container
 							cancel()
 							break
 						} else {
-							logger.Printf("(%s) User input: %x\n", session.id, data[0])
+							//logger.Printf("(%s) User input: %x\n", session.id, data[0])
 							tocont <- data
 						}
 					}
@@ -251,21 +303,27 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 
 	}()
 	<-rCtx.Done()
-	logger.Printf("(%s) SSH session ended\n", session.id)
+	logger.Printf("(%d) SSH session ended\n", session.id)
+	session.timeEnd = time.Now()
 	nConn.Close()
 
 	cli.ContainerPause(ctx, resp.ID)
 
 	diffs, err := cli.ContainerDiff(ctx, resp.ID)
 	for _, d := range diffs {
-		logger.Printf("(%s) Modified file: %s\n", session.id, d.Path)
+		if debug {
+			logger.Printf("(%d) Modified file: %s\n", session.id, d.Path)
+		}
+		session.modifiedFiles = append(session.modifiedFiles, d.Path)
 	}
-	logger.Printf("(%s) Killing container\n", session.id)
+	logger.Printf("(%d) Killing container\n", session.id)
+	logger.Println("Writing log")
+	createLog(*session, outputDir)
 	err = cli.ContainerKill(ctx, resp.ID, "SIGINT")
 	if err != nil {
 		logger.Println("Error while killing container: ", err)
 	} else {
-		logger.Printf("(%s) All done\n", session.id)
+		logger.Printf("(%d) All done\n", session.id)
 	}
 }
 
@@ -282,4 +340,65 @@ func getPrompt(w io.WriteCloser, resp types.HijackedResponse, logger *log.Logger
 	}
 	logger.Println("READ ", len(prompt), "BYTES FOR PROMPT")
 	return string(prompt), nil
+}
+
+func createLog(session sessionData, outputDir string) error {
+
+	if !strings.HasSuffix(outputDir, "/") {
+		outputDir = fmt.Sprintf("%s/", outputDir)
+	}
+
+	filename := fmt.Sprintf("%s-%d", session.globalId, session.id)
+	f, err := os.Create(outputDir + filename)
+	if err != nil {
+		return err
+	}
+	//id := strconv.Itoa(session.id)
+
+	str := fmt.Sprintf("Log for session %d\n", session.id)
+	f.WriteString(str)
+	if err != nil {
+		return err
+	}
+
+	str = fmt.Sprintf("Start time: %s (%d)\n", session.timeStart.Format(time.UnixDate), session.timeStart.Unix())
+	f.WriteString(str)
+	if err != nil {
+		return err
+	}
+
+	str = fmt.Sprintf("End time: %s (%d)\n", session.timeEnd.Format(time.UnixDate), session.timeEnd.Unix())
+	f.WriteString(str)
+	if err != nil {
+		return err
+	}
+
+	f.WriteString("Authentication attempts;\n")
+	for i, a := range session.authAttempts {
+		str = fmt.Sprintf("Attempt %d at %s: username: '%s', password '%s'\n", i+1, a.time.Format(time.UnixDate), a.username, a.password)
+		f.WriteString(str)
+		if err != nil {
+			return err
+		}
+	}
+
+	f.WriteString("User input;\n")
+	for _, u := range session.userInput {
+		str := fmt.Sprintf("%s: '%s'", u.time.Format(time.UnixDate), u.data)
+		f.WriteString(str)
+		if err != nil {
+			return err
+		}
+	}
+	f.WriteString("File modified during session;\n")
+	for _, file := range session.modifiedFiles {
+		str := fmt.Sprintf("Path: %s\n", file)
+		f.WriteString(str)
+		if err != nil {
+			return err
+		}
+	}
+	f.WriteString("Log end.\n")
+
+	return nil
 }
