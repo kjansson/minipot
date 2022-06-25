@@ -54,13 +54,11 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 		}
 		session.authAttempts = append(session.authAttempts, a)
 
-		//if time.Now().Second()%2 == 0 {
 		if len(session.authAttempts) == 2 {
 			logger.Println("Accepting connection")
 			return nil, nil
 		}
 		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
-		//return nil, nil
 	}
 
 }
@@ -135,10 +133,9 @@ func main() {
 
 func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, image string, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
 
-	//var mutex sync.RWMutex
 	ctx := context.Background()
-	fromcont := make(chan byte)
-	tocont := make(chan []byte)
+	fromContainer := make(chan byte)
+	toContainer := make(chan []byte)
 
 	newCtx := context.Background()
 	rCtx, cancel := context.WithCancel(newCtx)
@@ -187,9 +184,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 					data: line,
 					time: time.Now(),
 				}
-				//fmt.Println("LINE: ", line)
 				session.userInput = append(session.userInput, i)
-				//fmt.Println("LEN: ", len(session.userInput))
 				line = ""
 			} else {
 				line = fmt.Sprintf("%s%s", line, string(b))
@@ -251,7 +246,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				}
 			}(requests)
 
-			go func() { // READ FROM TERMINAL
+			go func() { // Read from user terminal
 				defer channel.Close()
 				for {
 					data := make([]byte, 32)
@@ -267,17 +262,15 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 							cancel()
 							break
 						} else {
-							//logger.Printf("(%s) User input: %x\n", session.id, data[0])
-							tocont <- data
+							toContainer <- data
 						}
 					}
 				}
 			}()
 
-			// Write to docker container
-			go func(w io.WriteCloser) { // WRITE TO CONTAINER INPUT
+			go func(w io.WriteCloser) { // Write to container input
 				for {
-					data, ok := <-tocont
+					data, ok := <-toContainer
 					if !ok {
 						w.Close()
 						return
@@ -286,15 +279,15 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				}
 			}(hjresp.Conn)
 
-			go func() { // WRITE OUTPUT TO USER
+			go func() { // Write output back to user
 
 				for {
-					b := <-fromcont
+					b := <-fromContainer
 					channel.Write([]byte{b})
 				}
 			}()
 
-			go func() { // READ OUTPUT FROM CONTAINER
+			go func() { // Read output from container
 				for {
 
 					data, err := hjresp.Reader.ReadByte()
@@ -304,7 +297,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 						break
 					}
 
-					fromcont <- data
+					fromContainer <- data
 
 				}
 			}()
@@ -347,7 +340,6 @@ func createLog(session sessionData, outputDir string) error {
 	if err != nil {
 		return err
 	}
-	//id := strconv.Itoa(session.id)
 
 	str := fmt.Sprintf("Log for session %d\n", session.id)
 	f.WriteString(str)
