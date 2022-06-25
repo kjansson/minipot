@@ -33,22 +33,24 @@ type authAttempt struct {
 }
 
 type sessionData struct {
-	id             int
-	globalId       string
-	user           string
-	password       string
-	hostname       string
-	sourceIp       string
-	clientVersion  string
-	timeStart      time.Time
-	timeEnd        time.Time
-	authAttempts   []authAttempt
-	userInput      []input
-	modifiedFiles  []string
-	networkMode    string
-	image          string
-	sessionTimeout int
-	inputTimeout   int
+	id                int
+	globalId          string
+	user              string
+	password          string
+	hostname          string
+	sourceIp          string
+	clientVersion     string
+	timeStart         time.Time
+	timeEnd           time.Time
+	authAttempts      []authAttempt
+	userInput         []input
+	modifiedFiles     []string
+	networkMode       string
+	image             string
+	sessionTimeout    int
+	inputTimeout      int
+	timedOutBySession bool
+	timedOutByNoInput bool
 }
 
 func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
@@ -168,8 +170,10 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	newCtx := context.Background()
 	rCtx, cancel := context.WithCancel(newCtx)
 
+	logger.Println("Session timeout is set to ", session.sessionTimeout, "seconds.")
 	go func() {
 		time.Sleep(time.Duration(session.sessionTimeout) * time.Second) // Container timeout
+		session.timedOutBySession = true
 		cancel()
 	}()
 
@@ -230,6 +234,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				select {
 				case <-timeoutchan:
 				case <-time.After(time.Duration(session.inputTimeout) * time.Second): // Make this configurable
+					session.timedOutByNoInput = true
 					cancel()
 				}
 			}
@@ -295,6 +300,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 						break
 					}
 					inputChan <- data[0]
+					timeoutchan <- true
 					if n > 0 {
 						if data[0] == 4 { // EOT, we want to catch this to not kill the container
 							cancel()
@@ -373,6 +379,20 @@ func createLog(session sessionData, outputDir string) error {
 	}
 
 	str = fmt.Sprintf("End time: %s (%d)\n", session.timeEnd.Format(time.UnixDate), session.timeEnd.Unix())
+	f.WriteString(str)
+	if err != nil {
+		return err
+	}
+
+	str = "Session end reason: "
+	if session.timedOutByNoInput {
+		str = fmt.Sprintf("%sNo user input.\n", str)
+	} else if session.timedOutBySession {
+		str = fmt.Sprintf("%sSession timeout reached.\n", str)
+	} else {
+		str = fmt.Sprintf("%sConnection closed.\n", str)
+	}
+
 	f.WriteString(str)
 	if err != nil {
 		return err
