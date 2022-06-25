@@ -20,6 +20,14 @@ import (
 	"github.com/docker/docker/client"
 )
 
+const ERR_IMAGE_PULL = 1
+const ERR_PRIVATE_KEY_LOAD = 2
+const ERR_PRIVATE_KEY_PARSE = 3
+const ERR_SSH_SERVE = 4
+const ERR_SSH_ACCEPT = 5
+const ERR_CONTAINER_ATTACH = 6
+const ERR_DOCKER_INVALID_NETWORK_MODE = 7
+
 type input struct {
 	data string
 	time time.Time
@@ -72,9 +80,14 @@ func main() {
 		globalSessionId = &tstr
 	}
 
-	if *networkmode != "none" && *networkmode != "bridge" && *networkmode != "host" && *networkmode != "overlay" && *networkmode != "ipvlan" && *networkmode != "macvlan" {
+	if *networkmode != "none" &&
+		*networkmode != "bridge" &&
+		*networkmode != "host" &&
+		*networkmode != "overlay" &&
+		*networkmode != "ipvlan" &&
+		*networkmode != "macvlan" {
 		logger.Println("No valid network mode given.")
-		os.Exit(1)
+		os.Exit(ERR_DOCKER_INVALID_NETWORK_MODE)
 	}
 
 	logger.Println("Starting minipot")
@@ -87,23 +100,27 @@ func main() {
 	logger.Printf("Pulling image %s", *image)
 	reader, err := cli.ImagePull(ctx, *image, types.ImagePullOptions{})
 	if err != nil {
-		panic(err)
+		logger.Println("Failed to pull image: ", err)
+		os.Exit(ERR_IMAGE_PULL)
 	}
 
 	privateBytes, err := ioutil.ReadFile("fake_id_rsa")
 	if err != nil {
-		log.Fatal("Failed to load private key: ", err)
+		logger.Println("Failed to load private key: ", err)
+		os.Exit(ERR_PRIVATE_KEY_LOAD)
 	}
 
 	private, err := ssh.ParsePrivateKey(privateBytes)
 	if err != nil {
-		log.Fatal("Failed to parse private key: ", err)
+		logger.Println("Failed to parse private key: ", err)
+		os.Exit(ERR_PRIVATE_KEY_PARSE)
 	}
 
 	logger.Println("Serving SSH")
 	listener, err := net.Listen("tcp", "0.0.0.0:22")
 	if err != nil {
-		log.Fatal("failed to listen for connection: ", err)
+		logger.Println("SSH listen failed: ", err)
+		os.Exit(ERR_SSH_SERVE)
 	}
 
 	sid := 0
@@ -121,7 +138,8 @@ func main() {
 
 		nConn, err := listener.Accept()
 		if err != nil {
-			log.Fatal("failed to accept incoming connection: ", err)
+			logger.Println("SSH accept failed: ", err)
+			os.Exit(ERR_SSH_ACCEPT)
 		}
 		config := &ssh.ServerConfig{
 			PasswordCallback: authCallBackWrapper(&session, *debug, *logger),
@@ -229,7 +247,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		hjresp, err := cli.ContainerAttach(ctx, resp.ID, cattopts)
 		if err != nil {
 			logger.Println("Error while attaching to container:", err)
-			os.Exit(1)
+			os.Exit(ERR_CONTAINER_ATTACH)
 		}
 
 		_, chans, reqs, err := ssh.NewServerConn(nConn, config)
@@ -264,7 +282,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 
 			go func(w io.WriteCloser) { // Read from terminal and write to container input
 
-				startReadChan <- true
+				startReadChan <- true // Not sure this is needed anymore, it's just to halt before we
 
 				w.Write(([]byte("\n"))) // Just send a LF to get a prompt at startup
 
