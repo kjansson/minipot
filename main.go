@@ -405,20 +405,3 @@ func createLog(session sessionData, outputDir string) error {
 
 	return nil
 }
-
-// func createUser(session sessionData, c *bufio.Reader, w io.WriteCloser) error {
-
-// 	str := []byte("useradd -p thisisfake -m " + session.user + "\n")
-// 	_, err := w.Write(str)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	str = []byte("su - " + session.user + "\n") //  > /dev/null 2>&1
-// 	_, err = w.Write(str)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	return nil
-// }
