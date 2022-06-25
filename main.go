@@ -45,6 +45,7 @@ type sessionData struct {
 	authAttempts  []authAttempt
 	userInput     []input
 	modifiedFiles []string
+	networkMode   string
 }
 
 func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
@@ -83,15 +84,20 @@ func main() {
 	outputDir := flag.String("outputdir", "./", "Directory to output session log files to.")
 	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
 	hostname := flag.String("hostname", "", "Hostname to use in container. Default is container default.")
+	networkmode := flag.String("networkmode", "none", "Docker network mode to use for containers. Defaults to 'none'. Use with caution!")
 
 	flag.Parse()
 
+	logger := log.New(os.Stderr, fmt.Sprintf("%s:\t", "minipot"), log.Ldate|log.Ltime|log.Lshortfile)
 	if *globalSessionId == "" {
 		tstr := strconv.Itoa(int(time.Now().Unix()))
 		globalSessionId = &tstr
 	}
 
-	logger := log.New(os.Stderr, fmt.Sprintf("%s:\t", "minipot"), log.Ldate|log.Ltime|log.Lshortfile)
+	if *networkmode != "none" && *networkmode != "bridge" && *networkmode != "host" && *networkmode != "overlay" && *networkmode != "ipvlan" && *networkmode != "macvlan" {
+		logger.Println("No valid network mode given.")
+		os.Exit(1)
+	}
 
 	logger.Println("Starting minipot")
 	logger.Println("Connecting to Docker engine")
@@ -125,10 +131,11 @@ func main() {
 	sid := 0
 	for {
 		session := sessionData{
-			globalId:  *globalSessionId,
-			id:        sid,
-			timeStart: time.Now(),
-			hostname:  *hostname,
+			globalId:    *globalSessionId,
+			id:          sid,
+			timeStart:   time.Now(),
+			hostname:    *hostname,
+			networkMode: *networkmode,
 		}
 
 		nConn, err := listener.Accept()
@@ -173,7 +180,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	},
 		&container.HostConfig{
 			AutoRemove:  true,
-			NetworkMode: "none",
+			NetworkMode: container.NetworkMode(session.networkMode),
 		}, nil, nil, "")
 	if err != nil {
 		panic(err)
