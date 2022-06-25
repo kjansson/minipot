@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/terminal"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -85,8 +84,8 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 
 	//var mutex sync.RWMutex
 	ctx := context.Background()
-	fromcont := make(chan ([]byte))
-	tocont := make(chan ([]byte))
+	fromcont := make(chan byte)
+	tocont := make(chan []byte)
 
 	newCtx := context.Background()
 	rCtx, cancel := context.WithCancel(newCtx)
@@ -125,7 +124,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			for {
 				select {
 				case <-timeoutchan:
-				case <-time.After(15 * time.Second): // Make this configurable
+				case <-time.After(120 * time.Second): // Make this configurable
 					cancel()
 				}
 			}
@@ -171,17 +170,43 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				}
 			}(requests)
 
-			term := terminal.NewTerminal(channel, "/ # ")
+			// prompt := ""
+			// for i := 0; i < 10; i++ {
+			// 	prompt, err = getPrompt(hjresp.Conn, hjresp, logger)
+			// 	if err != nil {
+			// 		logger.Println("Error while getting prompt:", err)
+			// 	}
+			// 	fmt.Println("PROMPT IS ", prompt)
+			// }
+			// prompt = strings.TrimSuffix(prompt, "\n")
 
+			// term := terminal.NewTerminal(channel, prompt)
+			// terminal.Terminal
+
+			//stdin := bufio.NewReader(channel.)
+			//writer := bufio.NewWriter(os.Stdout)
+			//delim := []byte("\n")
 			go func() { // READ FROM TERMINAL
 				defer channel.Close()
 				for {
-					line, err := term.ReadLine()
+					data := make([]byte, 1024)
+					//b, err := stdin.ReadBytes(delim[0])
+					n, err := channel.Read(data)
 					if err != nil {
+						logger.Println("SSH Channel read error: ", err)
+						cancel()
 						break
 					}
-					logger.Printf("(%s) User input: %s\n", sessionId, line)
-					tocont <- []byte(line)
+					logger.Println("Read ", n, "bytes")
+					if n > 0 {
+						if data[0] == 4 { // EOT
+							cancel()
+							break
+						} else {
+							logger.Printf("(%s) User input: %x\n", sessionId, data[0])
+							tocont <- data
+						}
+					}
 				}
 			}()
 
@@ -193,52 +218,81 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 						w.Close()
 						return
 					}
-					w.Write(append(data, '\n'))
+					w.Write(data)
 				}
 			}(hjresp.Conn)
 
 			go func() { // WRITE OUTPUT TO USER
+				// 	//outputBlob := []string{}
+				// 	//	line := []rune{}
 				for {
-					data := <-fromcont
-					fmt.Println("DEBUG DATA:", string(data))
-					//if string(data) != prompt {
-					//fmt.Println("Is not prompt")
-					_, err = term.Write(data) // BACK TO USER
-					if err == nil {
-						timeoutchan <- true
-					} else {
-						fmt.Println(err)
-					}
+					b := <-fromcont
+					// 		writer.WriteByte(b)
+					// 		// line = append(line, b)
+					// 		// logger.Println("read ", string(b))
 
-					//mutex.Lock()
-					// fmt.Println("Got lock access for prompt")
+					// 		//output := output{prompt: false}
+					// 		// fmt.Printf("PROMPT IS '%s'\n", prompt)
+					// 		// logger.Printf("LINE IS NOW '%s'\n", string(line))
+					// 		// prefix := strings.Split(string(line), " ")
+					// 		// logger.Printf("PREFIX IS NOW '%s'\n", prefix[0])
 
-					// prompt, err := getPrompt(hjresp.Conn, hjresp, logger)
-					// //	mutex.Unlock()
-					// if err != nil {
-					// 	fmt.Println("Warning: error while reading for prompt:", err)
-					// } else {
-					// 	fmt.Println("DEBUG PROMPT: ", prompt)
-					// 	term.SetPrompt(prompt)
-					// }
+					// 		// if strings.HasPrefix(prefix[0], prompt) {
+					// 		// 	logger.Println("NEW PROMPT")
+					// 		// 	logger.Printf("OLD PROMPT WAS '%s'\n", prompt)
+					// 		// 	logger.Printf("LINE PREFIX IS '%s'\n", prefix[0])
+					// 		// 	//output.prompt = true
+					// 		// 	prompt = string(line)
+					// 		// 	term.SetPrompt(prompt)
+					// 		// 	//fmt.Println("DEBUG DATA:", string(data))
+					// 		// 	//if string(data) != prompt {
+					// 		// 	//fmt.Println("Is not prompt")
+					// 		// 	for _, o := range outputBlob {
+					// 		// 		_, err = term.Write([]byte(o)) // BACK TO USER
+					// 		// 		if err == nil {
+					// 		// 			timeoutchan <- true
+					// 		// 		} else {
+					// 		// 			fmt.Println(err)
+					// 		// 		}
+					// 		// 	}
+					// 		// 	outputBlob = []string{}
+					// 		// 	line = []rune{}
 
-					//	}
+					// 		// } else if b == '\n' {
+					// 		// 	logger.Println("newline")
+					// 		// 	logger.Printf("NOT PROMPT: '%s'", prefix[0])
+					// 		// 	logger.Printf("PROMPT IS '%s'", prompt)
+					// 		// 	outputBlob = append(outputBlob, string(line))
+					// 		// }
+
+					// 		//mutex.Lock()
+					// 		// fmt.Println("Got lock access for prompt")
+
+					// 		// prompt, err := getPrompt(hjresp.Conn, hjresp, logger)
+					// 		// //	mutex.Unlock()
+					// 		// if err != nil {
+					// 		// 	fmt.Println("Warning: error while reading for prompt:", err)
+					// 		// } else {
+					// 		// 	fmt.Println("DEBUG PROMPT: ", prompt)
+					// 		// 	term.SetPrompt(prompt)
+					// 		// }
+					channel.Write([]byte{b})
+					// 		//	}
 
 				}
 			}()
 
 			go func() { // READ OUTPUT FROM CONTAINER
-				delim := []byte("\n")
 				for {
-					//	mutex.Lock()
-					fmt.Println("Got lock access for read from container")
-					data := []byte{}
-					data, err = hjresp.Reader.ReadBytes(delim[0])
-					fmt.Println("DEBUG: ", string(data))
-					if err == nil && len(data) > 1 {
-						fromcont <- data
+
+					data, err := hjresp.Reader.ReadByte()
+					if err != nil {
+						logger.Println("Read error from container output", err)
+						cancel()
+						break
 					}
-					//	mutex.Unlock()
+
+					fromcont <- data
 
 				}
 			}()
@@ -267,14 +321,14 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 func getPrompt(w io.WriteCloser, resp types.HijackedResponse, logger *log.Logger) (string, error) {
 	data := []byte("\n")
 	n, err := w.Write(data)
-	if err == nil {
+	if err != nil {
 		return "", err
 	}
-	fmt.Println("WROTE ", n, " BYTES FOR PROMPT")
+	logger.Println("WROTE ", n, " BYTES FOR PROMPT")
 	prompt, err := resp.Reader.ReadBytes(data[0])
-	if err == nil {
+	if err != nil {
 		return "", err
 	}
-	fmt.Println("READ ", len(prompt), "BYTES FOR PROMPT")
+	logger.Println("READ ", len(prompt), "BYTES FOR PROMPT")
 	return string(prompt), nil
 }
