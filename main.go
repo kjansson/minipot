@@ -178,7 +178,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		for {
 			b := <-inputChan
 			line = fmt.Sprintf("%s%s", line, string(b))
-			if string(b) == "\n" {
+			if b == 13 { // CR
 				i := input{
 					data: line,
 					time: time.Now(),
@@ -246,13 +246,14 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			go func() { // READ FROM TERMINAL
 				defer channel.Close()
 				for {
-					data := make([]byte, 1024)
+					data := make([]byte, 32)
 					n, err := channel.Read(data)
 					if err != nil {
 						logger.Println("SSH Channel read error: ", err)
 						cancel()
 						break
 					}
+					inputChan <- data[0]
 					if n > 0 {
 						if data[0] == 4 { // EOT, we want to catch this to not kill the container
 							cancel()
@@ -325,21 +326,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	} else {
 		logger.Printf("(%d) All done\n", session.id)
 	}
-}
-
-func getPrompt(w io.WriteCloser, resp types.HijackedResponse, logger *log.Logger) (string, error) {
-	data := []byte("\n")
-	n, err := w.Write(data)
-	if err != nil {
-		return "", err
-	}
-	logger.Println("WROTE ", n, " BYTES FOR PROMPT")
-	prompt, err := resp.Reader.ReadBytes(data[0])
-	if err != nil {
-		return "", err
-	}
-	logger.Println("READ ", len(prompt), "BYTES FOR PROMPT")
-	return string(prompt), nil
 }
 
 func createLog(session sessionData, outputDir string) error {
