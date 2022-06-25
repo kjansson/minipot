@@ -46,6 +46,7 @@ type sessionData struct {
 	userInput     []input
 	modifiedFiles []string
 	networkMode   string
+	image         string
 }
 
 func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
@@ -136,6 +137,7 @@ func main() {
 			timeStart:   time.Now(),
 			hostname:    *hostname,
 			networkMode: *networkmode,
+			image:       *image,
 		}
 
 		nConn, err := listener.Accept()
@@ -352,7 +354,7 @@ func createLog(session sessionData, outputDir string) error {
 		return err
 	}
 
-	str := fmt.Sprintf("Log for session %d\n", session.id)
+	str := fmt.Sprintf("Log for session %d from address %s. Image %s. Network mode %s. \n", session.id, session.sourceIp, session.networkMode, session.image)
 	f.WriteString(str)
 	if err != nil {
 		return err
