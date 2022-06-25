@@ -171,7 +171,9 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	rCtx, cancel := context.WithCancel(newCtx)
 
 	if session.sessionTimeout > 0 {
-		logger.Println("Session timeout is set to ", session.sessionTimeout, "seconds.")
+		if debug {
+			logger.Println("Session timeout is set to ", session.sessionTimeout, "seconds.")
+		}
 		go func() {
 			time.Sleep(time.Duration(session.sessionTimeout) * time.Second) // Container timeout
 			session.timedOutBySession = true
@@ -182,6 +184,9 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	defer reader.Close()
 	io.Copy(os.Stdout, reader)
 
+	if debug {
+		logger.Println("Creating container.")
+	}
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        image,
 		AttachStderr: true,
