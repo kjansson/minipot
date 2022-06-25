@@ -377,7 +377,12 @@ func createLog(session sessionData, outputDir string) error {
 		return err
 	}
 
-	str := fmt.Sprintf("Log for session %d from address %s. Image %s. Network mode %s. \n", session.id, session.sourceIp, session.networkMode, session.image)
+	str := fmt.Sprintf("Log for session %d from address %s. Image %s. Network mode %s. Client version: %s\n",
+		session.id,
+		session.sourceIp,
+		session.networkMode,
+		session.image,
+		session.clientVersion)
 	f.WriteString(str)
 	if err != nil {
 		return err
