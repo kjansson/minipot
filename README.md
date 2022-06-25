@@ -25,6 +25,7 @@ go build
 -debug          # Set to =true to enable debug output.
 -outputdir      # Which path to output session log files to. Defaults to current working directory.
 -id             # Global session ID. Used for log file names etc. Defaults to epoch.
+-networkmode    # Docker network mode to use for container. Defaults to "none". Use with caution!
 
 ```
 

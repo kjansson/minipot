@@ -33,20 +33,22 @@ type authAttempt struct {
 }
 
 type sessionData struct {
-	id            int
-	globalId      string
-	user          string
-	password      string
-	hostname      string
-	sourceIp      string
-	clientVersion string
-	timeStart     time.Time
-	timeEnd       time.Time
-	authAttempts  []authAttempt
-	userInput     []input
-	modifiedFiles []string
-	networkMode   string
-	image         string
+	id             int
+	globalId       string
+	user           string
+	password       string
+	hostname       string
+	sourceIp       string
+	clientVersion  string
+	timeStart      time.Time
+	timeEnd        time.Time
+	authAttempts   []authAttempt
+	userInput      []input
+	modifiedFiles  []string
+	networkMode    string
+	image          string
+	sessionTimeout int
+	inputTimeout   int
 }
 
 func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
@@ -86,6 +88,8 @@ func main() {
 	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
 	hostname := flag.String("hostname", "", "Hostname to use in container. Default is container default.")
 	networkmode := flag.String("networkmode", "none", "Docker network mode to use for containers. Defaults to 'none'. Use with caution!")
+	sessionTimeout := flag.Int("sessiontimeout", 1800, "Timeout in seconds before closing a session. Default to 1800.")
+	inputTimeout := flag.Int("inputtimeout", 300, "Timeout in seconds before closing a session when no input is detected. Default to 300.")
 
 	flag.Parse()
 
@@ -132,12 +136,14 @@ func main() {
 	sid := 0
 	for {
 		session := sessionData{
-			globalId:    *globalSessionId,
-			id:          sid,
-			timeStart:   time.Now(),
-			hostname:    *hostname,
-			networkMode: *networkmode,
-			image:       *image,
+			globalId:       *globalSessionId,
+			id:             sid,
+			timeStart:      time.Now(),
+			hostname:       *hostname,
+			networkMode:    *networkmode,
+			image:          *image,
+			sessionTimeout: *sessionTimeout,
+			inputTimeout:   *inputTimeout,
 		}
 
 		nConn, err := listener.Accept()
@@ -163,7 +169,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 	rCtx, cancel := context.WithCancel(newCtx)
 
 	go func() {
-		time.Sleep(600 * time.Second) // Container timeout
+		time.Sleep(time.Duration(session.sessionTimeout) * time.Second) // Container timeout
 		cancel()
 	}()
 
@@ -223,7 +229,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			for {
 				select {
 				case <-timeoutchan:
-				case <-time.After(120 * time.Second): // Make this configurable
+				case <-time.After(time.Duration(session.inputTimeout) * time.Second): // Make this configurable
 					cancel()
 				}
 			}
