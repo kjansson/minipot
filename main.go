@@ -18,6 +18,26 @@ import (
 	"github.com/docker/docker/client"
 )
 
+type input struct {
+	data string
+	time time.Time
+}
+
+type authAttempt struct {
+	username string
+	password string
+	time     time.Time
+}
+
+type sessionData struct {
+	id            string
+	timeStart     time.Time
+	timeEnd       time.Time
+	authAttempts  []string
+	userInput     []input
+	modifiedFiles []string
+}
+
 func main() {
 
 	image := flag.String("image", "docker.io/library/alpine", "Image to use as user environment")
@@ -74,13 +94,14 @@ func main() {
 		if err != nil {
 			log.Fatal("failed to accept incoming connection: ", err)
 		}
-		logger.Printf("New SSH session (SESSION-%d)\n", sid)
-		go handleClient(nConn, reader, cli, config, *image, logger, fmt.Sprintf("SESSION-%d", sid))
+		session := sessionData{id: "SESSION-%d"}
+		logger.Printf("New SSH session (%s)\n", session.id)
+		go handleClient(nConn, reader, cli, config, *image, logger, session)
 		sid++
 	}
 }
 
-func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, image string, logger *log.Logger, sessionId string) {
+func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, image string, logger *log.Logger, session sessionData) {
 
 	//var mutex sync.RWMutex
 	ctx := context.Background()
@@ -170,40 +191,22 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				}
 			}(requests)
 
-			// prompt := ""
-			// for i := 0; i < 10; i++ {
-			// 	prompt, err = getPrompt(hjresp.Conn, hjresp, logger)
-			// 	if err != nil {
-			// 		logger.Println("Error while getting prompt:", err)
-			// 	}
-			// 	fmt.Println("PROMPT IS ", prompt)
-			// }
-			// prompt = strings.TrimSuffix(prompt, "\n")
-
-			// term := terminal.NewTerminal(channel, prompt)
-			// terminal.Terminal
-
-			//stdin := bufio.NewReader(channel.)
-			//writer := bufio.NewWriter(os.Stdout)
-			//delim := []byte("\n")
 			go func() { // READ FROM TERMINAL
 				defer channel.Close()
 				for {
 					data := make([]byte, 1024)
-					//b, err := stdin.ReadBytes(delim[0])
 					n, err := channel.Read(data)
 					if err != nil {
 						logger.Println("SSH Channel read error: ", err)
 						cancel()
 						break
 					}
-					logger.Println("Read ", n, "bytes")
 					if n > 0 {
 						if data[0] == 4 { // EOT
 							cancel()
 							break
 						} else {
-							logger.Printf("(%s) User input: %x\n", sessionId, data[0])
+							logger.Printf("(%s) User input: %x\n", session.id, data[0])
 							tocont <- data
 						}
 					}
@@ -223,62 +226,10 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			}(hjresp.Conn)
 
 			go func() { // WRITE OUTPUT TO USER
-				// 	//outputBlob := []string{}
-				// 	//	line := []rune{}
+
 				for {
 					b := <-fromcont
-					// 		writer.WriteByte(b)
-					// 		// line = append(line, b)
-					// 		// logger.Println("read ", string(b))
-
-					// 		//output := output{prompt: false}
-					// 		// fmt.Printf("PROMPT IS '%s'\n", prompt)
-					// 		// logger.Printf("LINE IS NOW '%s'\n", string(line))
-					// 		// prefix := strings.Split(string(line), " ")
-					// 		// logger.Printf("PREFIX IS NOW '%s'\n", prefix[0])
-
-					// 		// if strings.HasPrefix(prefix[0], prompt) {
-					// 		// 	logger.Println("NEW PROMPT")
-					// 		// 	logger.Printf("OLD PROMPT WAS '%s'\n", prompt)
-					// 		// 	logger.Printf("LINE PREFIX IS '%s'\n", prefix[0])
-					// 		// 	//output.prompt = true
-					// 		// 	prompt = string(line)
-					// 		// 	term.SetPrompt(prompt)
-					// 		// 	//fmt.Println("DEBUG DATA:", string(data))
-					// 		// 	//if string(data) != prompt {
-					// 		// 	//fmt.Println("Is not prompt")
-					// 		// 	for _, o := range outputBlob {
-					// 		// 		_, err = term.Write([]byte(o)) // BACK TO USER
-					// 		// 		if err == nil {
-					// 		// 			timeoutchan <- true
-					// 		// 		} else {
-					// 		// 			fmt.Println(err)
-					// 		// 		}
-					// 		// 	}
-					// 		// 	outputBlob = []string{}
-					// 		// 	line = []rune{}
-
-					// 		// } else if b == '\n' {
-					// 		// 	logger.Println("newline")
-					// 		// 	logger.Printf("NOT PROMPT: '%s'", prefix[0])
-					// 		// 	logger.Printf("PROMPT IS '%s'", prompt)
-					// 		// 	outputBlob = append(outputBlob, string(line))
-					// 		// }
-
-					// 		//mutex.Lock()
-					// 		// fmt.Println("Got lock access for prompt")
-
-					// 		// prompt, err := getPrompt(hjresp.Conn, hjresp, logger)
-					// 		// //	mutex.Unlock()
-					// 		// if err != nil {
-					// 		// 	fmt.Println("Warning: error while reading for prompt:", err)
-					// 		// } else {
-					// 		// 	fmt.Println("DEBUG PROMPT: ", prompt)
-					// 		// 	term.SetPrompt(prompt)
-					// 		// }
 					channel.Write([]byte{b})
-					// 		//	}
-
 				}
 			}()
 
@@ -300,21 +251,21 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 
 	}()
 	<-rCtx.Done()
-	logger.Printf("(%s) SSH session ended\n", sessionId)
+	logger.Printf("(%s) SSH session ended\n", session.id)
 	nConn.Close()
 
 	cli.ContainerPause(ctx, resp.ID)
 
 	diffs, err := cli.ContainerDiff(ctx, resp.ID)
 	for _, d := range diffs {
-		logger.Printf("(%s) Modified file: %s\n", sessionId, d.Path)
+		logger.Printf("(%s) Modified file: %s\n", session.id, d.Path)
 	}
-	logger.Printf("(%s) Killing container\n", sessionId)
+	logger.Printf("(%s) Killing container\n", session.id)
 	err = cli.ContainerKill(ctx, resp.ID, "SIGINT")
 	if err != nil {
 		logger.Println("Error while killing container: ", err)
 	} else {
-		logger.Printf("(%s) All done\n", sessionId)
+		logger.Printf("(%s) All done\n", session.id)
 	}
 }
 
