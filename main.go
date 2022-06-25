@@ -177,14 +177,22 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		line := ""
 		for {
 			b := <-inputChan
-			line = fmt.Sprintf("%s%s", line, string(b))
-			if b == 13 { // CR
+			fmt.Printf("%d", b)
+			if b == 127 { // DELETE
+				line = fmt.Sprintf("%s<BACKSPACE>", line)
+			} else if b == 9 {
+				line = fmt.Sprintf("%s<TAB>", line)
+			} else if b == 13 { // CR
 				i := input{
 					data: line,
 					time: time.Now(),
 				}
+				//fmt.Println("LINE: ", line)
 				session.userInput = append(session.userInput, i)
+				//fmt.Println("LEN: ", len(session.userInput))
 				line = ""
+			} else {
+				line = fmt.Sprintf("%s%s", line, string(b))
 			}
 		}
 
@@ -370,7 +378,7 @@ func createLog(session sessionData, outputDir string) error {
 
 	f.WriteString("User input;\n")
 	for _, u := range session.userInput {
-		str := fmt.Sprintf("%s: '%s'", u.time.Format(time.UnixDate), u.data)
+		str := fmt.Sprintf("%s: '%s'\n", u.time.Format(time.UnixDate), u.data)
 		f.WriteString(str)
 		if err != nil {
 			return err
