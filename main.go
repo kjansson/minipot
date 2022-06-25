@@ -63,7 +63,7 @@ type sessionData struct {
 
 func main() {
 
-	image := flag.String("image", "docker.io/library/alpine", "Image to use as user environment.")
+	image := flag.String("image", "ubuntu:18.04", "Image to use as user environment.")
 	debug := flag.Bool("debug", false, "Enable debug output.")
 	outputDir := flag.String("outputdir", "./", "Directory to output session log files to.")
 	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
@@ -149,12 +149,12 @@ func main() {
 
 		config.AddHostKey(private)
 		logger.Printf("New SSH session (%d)\n", session.id)
-		go handleClient(nConn, reader, cli, config, *image, logger, &session, *outputDir, *debug)
+		go handleClient(nConn, reader, cli, config, logger, &session, *outputDir, *debug)
 		sid++
 	}
 }
 
-func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, image string, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
+func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
 
 	ctx := context.Background()
 
@@ -179,7 +179,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		logger.Println("Creating container.")
 	}
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image:        image,
+		Image:        session.image,
 		AttachStderr: true,
 		AttachStdin:  true,
 		Tty:          true,
@@ -239,14 +239,14 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			}()
 		}
 
-		cattopts := types.ContainerAttachOptions{
+		containerAttachOpts := types.ContainerAttachOptions{
 			Stdin:  true,
 			Stdout: true,
 			Stderr: true,
 			Stream: true,
 		}
 
-		hjresp, err := cli.ContainerAttach(ctx, resp.ID, cattopts)
+		hjresp, err := cli.ContainerAttach(ctx, resp.ID, containerAttachOpts)
 		if err != nil {
 			logger.Println("Error while attaching to container:", err)
 			os.Exit(ERR_CONTAINER_ATTACH)
