@@ -53,35 +53,6 @@ type sessionData struct {
 	timedOutByNoInput bool
 }
 
-func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-
-	return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-		if debug {
-			logger.Printf("(DEBUG) Auth attempt: Username %s, password %s\n", c.User(), string(pass))
-		}
-		session.sourceIp = c.RemoteAddr().String()
-		session.clientVersion = string(c.ClientVersion())
-		a := authAttempt{
-			username: c.User(),
-			password: string(pass),
-			time:     time.Now(),
-		}
-
-		if len(session.authAttempts) == 2 && c.User() == "root" {
-			logger.Println("Accepting connection")
-			session.user = c.User()
-			session.password = string(pass)
-			a.successful = true
-			session.authAttempts = append(session.authAttempts, a)
-			return nil, nil
-		} else {
-			session.authAttempts = append(session.authAttempts, a)
-		}
-		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
-	}
-
-}
-
 func main() {
 
 	image := flag.String("image", "docker.io/library/alpine", "Image to use as user environment.")
@@ -195,7 +166,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		AttachStdout: true,
 		OpenStdin:    true,
 		Hostname:     session.hostname,
-		//Cmd:          []string{"/usr/sbin/useradd", "-p", "thisisfake", "-m", session.user},
 	},
 		&container.HostConfig{
 			AutoRemove:  true,
@@ -446,4 +416,32 @@ func createLog(session sessionData, outputDir string) error {
 	f.WriteString("Log end.\n")
 
 	return nil
+}
+
+func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+
+	return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+		if debug {
+			logger.Printf("(DEBUG) Auth attempt: Username %s, password %s\n", c.User(), string(pass))
+		}
+		session.sourceIp = c.RemoteAddr().String()
+		session.clientVersion = string(c.ClientVersion())
+		a := authAttempt{
+			username: c.User(),
+			password: string(pass),
+			time:     time.Now(),
+		}
+
+		if len(session.authAttempts) == 2 && c.User() == "root" {
+			logger.Println("Accepting connection")
+			session.user = c.User()
+			session.password = string(pass)
+			a.successful = true
+			session.authAttempts = append(session.authAttempts, a)
+			return nil, nil
+		} else {
+			session.authAttempts = append(session.authAttempts, a)
+		}
+		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
+	}
 }
