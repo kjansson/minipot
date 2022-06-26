@@ -65,7 +65,6 @@ type sessionData struct {
 	timedOutBySession    bool
 	timedOutByNoInput    bool
 	environmentVariables []string
-	// authSignal           chan bool
 }
 
 func main() {
@@ -77,10 +76,6 @@ func main() {
 	networkmode := flag.String("networkmode", "none", "Docker network mode to use for containers. Valid options are 'none', 'bridge' or 'host'. Defaults to 'none'. Use with caution!")
 	sessionTimeout := flag.Int("sessiontimeout", 1800, "Timeout in seconds before closing a session. Default to 1800.")
 	inputTimeout := flag.Int("inputtimeout", 300, "Timeout in seconds before closing a session when no input is detected. Default to 300.")
-	// envVars := flag.String("envvars", "", "Environment variables to pass on to container, in the format VAR=val and separated by ','. If you want to do some custom stuff in your container.")
-
-	image := "minipot-ubuntu:1"
-	//imageParts := strings.Split(*imageflag, ":")
 
 	flag.Parse()
 
@@ -89,12 +84,6 @@ func main() {
 		tstr := strconv.Itoa(int(time.Now().Unix()))
 		globalSessionId = &tstr
 	}
-
-	// environmentVariables := strings.Split(*envVars, ",")
-
-	// for _, x := range environmentVariables {
-	// 	logger.Println("ENV:", x)
-	// }
 
 	if *networkmode != "none" &&
 		*networkmode != "bridge" &&
@@ -110,68 +99,68 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	// logger.Printf("Pulling image %s", image)
-	// reader, err := cli.ImagePull(ctx, image, types.ImagePullOptions{})
-	// if err != nil {
-	// 	logger.Println("Failed to pull image: ", err)
-	// 	os.Exit(ERR_IMAGE_PULL)
-	// }
 
 	buf := new(bytes.Buffer)
-	tw := tar.NewWriter(buf)
+	tarWriter := tar.NewWriter(buf)
 
-	logger.Println("build")
+	logger.Println("Starting image build from ", *baseimage)
 	readDockerFile := []byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE)
 
 	tarHeader := &tar.Header{
 		Name: "Dockerfile",
 		Size: int64(len(readDockerFile)),
 	}
-	err = tw.WriteHeader(tarHeader)
+	err = tarWriter.WriteHeader(tarHeader)
 	if err != nil {
-		log.Fatal(err, " :unable to write tar header")
+		log.Println("Error writing TAR header: ", err)
+		os.Exit(1)
 	}
-	_, err = tw.Write(readDockerFile)
+	_, err = tarWriter.Write(readDockerFile)
 	if err != nil {
-		log.Fatal(err, " :unable to write tar body")
+		log.Println("Error writing TAR body: ", err)
+		os.Exit(1)
 	}
 
 	tarHeader = &tar.Header{
 		Name: "entrypoint.sh",
 		Size: int64(len([]byte(ENTRYPOINT))),
 	}
-	err = tw.WriteHeader(tarHeader)
+	err = tarWriter.WriteHeader(tarHeader)
 	if err != nil {
-		log.Fatal(err, " :unable to write tar header")
+		log.Println("Error writing TAR header: ", err)
+		os.Exit(1)
 	}
-	_, err = tw.Write([]byte(ENTRYPOINT))
+	_, err = tarWriter.Write([]byte(ENTRYPOINT))
 	if err != nil {
-		log.Fatal(err, " :unable to write tar body")
+		log.Println("Error writing TAR body: ", err)
+		os.Exit(1)
 	}
 
-	dockerFileTarReader := bytes.NewReader(buf.Bytes())
+	dockerContext := bytes.NewReader(buf.Bytes())
 
 	imageBuildResponse, err := cli.ImageBuild(
 		ctx,
-		dockerFileTarReader,
+		dockerContext,
 		types.ImageBuildOptions{
-			Context:    dockerFileTarReader,
+			Context:    dockerContext,
 			Dockerfile: "Dockerfile",
 			Remove:     true,
 			Tags:       []string{"minipot-client-env:latest"}})
 	if err != nil {
-		log.Fatal(err, " :unable to build docker image")
+		log.Println("Error building image: ", err)
+		os.Exit(1)
 	}
 	defer imageBuildResponse.Body.Close()
-	_, err = io.Copy(os.Stdout, imageBuildResponse.Body)
-	if err != nil {
-		log.Fatal(err, " :unable to read image build response")
+	if *debug {
+		_, err = io.Copy(os.Stdout, imageBuildResponse.Body)
+		if err != nil {
+			log.Println("Error reading image build response: ", err)
+			os.Exit(1)
+		}
 	}
-	logger.Println("build done")
 
-	//
-	//
-	//
+	logger.Println("Build complete")
+
 	privateBytes, err := ioutil.ReadFile("fake_id_rsa")
 	if err != nil {
 		logger.Println("Failed to load private key: ", err)
@@ -206,11 +195,10 @@ func main() {
 			timeStart:      time.Now(),
 			hostname:       *hostname,
 			networkMode:    *networkmode,
-			image:          image,
+			image:          *baseimage,
 			sessionTimeout: *sessionTimeout,
 			inputTimeout:   *inputTimeout,
 			// environmentVariables: environmentVariables,
-			// authSignal: make(chan bool),
 		}
 
 		config := &ssh.ServerConfig{
@@ -242,10 +230,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}()
 	}
 
-	// defer reader.Close()
-	// io.Copy(os.Stdout, reader)
-	////<-session.authSignal
-
 	if debug {
 		logger.Println("Creating container.")
 	}
@@ -255,44 +239,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		log.Println("User failed to login: ", err)
 		cancel()
 	}
-	//	session.authSignal <- true
-
-	// // Create a temp container to determine default cmd
-	// temp, err := cli.ContainerCreate(ctx, &container.Config{
-	// 	Image:        session.image,
-	// 	AttachStderr: true,
-	// 	AttachStdin:  true,
-	// 	Tty:          true,
-	// 	AttachStdout: true,
-	// 	OpenStdin:    true,
-	// 	Hostname:     session.hostname,
-	// 	Env:          session.environmentVariables,
-	// },
-	// 	&container.HostConfig{
-	// 		AutoRemove:  true,
-	// 		NetworkMode: container.NetworkMode(session.networkMode),
-	// 	}, nil, nil, "")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// ci, err := cli.ContainerInspect(ctx, temp.ID)
-	// if err != nil {
-	// 	fmt.Println("nope")
-	// }
-	// cmd := ci.Config.Cmd
-	// cli.ContainerRemove(ctx, ci.ID, types.ContainerRemoveOptions{})
-	// if err != nil {
-	// 	logger.Println("Warning! Could not remove temporary container.")
-	// }
-
-	// // useradd -m -p <encryptedPassword> -s /bin/bash <user>
-
-	// newCmd := strslice.StrSlice([]string{"useradd", "-m", "-p", "thisisfake", session.user, "&&", "su", session.user, "&&"})
-	// for _, s := range cmd {
-	// 	newCmd = append(newCmd, s)
-	// }
-
-	// logger.Println("New cmd: ", newCmd)
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        "minipot-client-env:latest",
@@ -337,7 +283,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 				line = fmt.Sprintf("%s%s", line, string(b))
 			}
 		}
-
 	}()
 
 	go func() {
