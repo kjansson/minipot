@@ -60,7 +60,7 @@ type sessionData struct {
 	timedOutBySession    bool
 	timedOutByNoInput    bool
 	environmentVariables []string
-	authSignal           chan bool
+	// authSignal           chan bool
 }
 
 func main() {
@@ -69,10 +69,10 @@ func main() {
 	outputDir := flag.String("outputdir", "./", "Directory to output session log files to.")
 	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
 	hostname := flag.String("hostname", "", "Hostname to use in container. Default is container default.")
-	networkmode := flag.String("networkmode", "none", "Docker network mode to use for containers. Defaults to 'none'. Use with caution!")
+	networkmode := flag.String("networkmode", "none", "Docker network mode to use for containers. Valid options are 'none', 'bridge' or 'host'. Defaults to 'none'. Use with caution!")
 	sessionTimeout := flag.Int("sessiontimeout", 1800, "Timeout in seconds before closing a session. Default to 1800.")
 	inputTimeout := flag.Int("inputtimeout", 300, "Timeout in seconds before closing a session when no input is detected. Default to 300.")
-	envVars := flag.String("envvars", "", "Environment variables to pass on to container, in the format VAR=val and separated by ','. If you want to do some custom stuff in your container.")
+	// envVars := flag.String("envvars", "", "Environment variables to pass on to container, in the format VAR=val and separated by ','. If you want to do some custom stuff in your container.")
 
 	image := "minipot-ubuntu:1"
 
@@ -84,18 +84,15 @@ func main() {
 		globalSessionId = &tstr
 	}
 
-	environmentVariables := strings.Split(*envVars, ",")
+	// environmentVariables := strings.Split(*envVars, ",")
 
-	for _, x := range environmentVariables {
-		logger.Println("ENV:", x)
-	}
+	// for _, x := range environmentVariables {
+	// 	logger.Println("ENV:", x)
+	// }
 
 	if *networkmode != "none" &&
 		*networkmode != "bridge" &&
 		*networkmode != "host" &&
-		*networkmode != "overlay" &&
-		*networkmode != "ipvlan" &&
-		*networkmode != "macvlan" {
 		logger.Println("No valid network mode given.")
 		os.Exit(ERR_DOCKER_INVALID_NETWORK_MODE)
 	}
@@ -143,16 +140,16 @@ func main() {
 		}
 
 		session := sessionData{
-			globalId:             *globalSessionId,
-			id:                   sid,
-			timeStart:            time.Now(),
-			hostname:             *hostname,
-			networkMode:          *networkmode,
-			image:                image,
-			sessionTimeout:       *sessionTimeout,
-			inputTimeout:         *inputTimeout,
-			environmentVariables: environmentVariables,
-			authSignal:           make(chan bool),
+			globalId:       *globalSessionId,
+			id:             sid,
+			timeStart:      time.Now(),
+			hostname:       *hostname,
+			networkMode:    *networkmode,
+			image:          image,
+			sessionTimeout: *sessionTimeout,
+			inputTimeout:   *inputTimeout,
+			// environmentVariables: environmentVariables,
+			// authSignal: make(chan bool),
 		}
 
 		config := &ssh.ServerConfig{
@@ -415,11 +412,11 @@ func createLog(session sessionData, outputDir string) error {
 		return err
 	}
 
-	str := fmt.Sprintf("Log for session %d from address %s. Image %s. Network mode %s. Client version: %s\n",
+	str := fmt.Sprintf("Log for session %d from address '%s'. Image '%s'. Network mode '%s'. Client version: '%s'\n",
 		session.id,
 		session.sourceIp,
-		session.networkMode,
 		session.image,
+		session.networkMode,
 		session.clientVersion)
 	f.WriteString(str)
 	if err != nil {
