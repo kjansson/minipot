@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -19,6 +21,9 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
+
+const DOCKER_FILE_BASE = "COPY entrypoint.sh /entrypoint.sh\nRUN chmod +x /entrypoint.sh\nENTRYPOINT /entrypoint.sh\n"
+const ENTRYPOINT = "#!/bin/bash\nif [[ \"$USR\" != \"root\" ]]\nthen\nuseradd -m -p thisisfake $USR -s /bin/bash\nsu - $USR\nelse\nbash\nfi\n"
 
 const ERR_IMAGE_PULL = 1
 const ERR_PRIVATE_KEY_LOAD = 2
@@ -64,7 +69,7 @@ type sessionData struct {
 }
 
 func main() {
-	//	image := flag.String("image", "ubuntu:18.04", "Image to use as user environment.")
+	baseimage := flag.String("baseimage", "ubuntu:18.04", "Image to use as base for user environment. Entrypoint will be overwritten.")
 	debug := flag.Bool("debug", false, "Enable debug output.")
 	outputDir := flag.String("outputdir", "./", "Directory to output session log files to.")
 	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
@@ -75,6 +80,7 @@ func main() {
 	// envVars := flag.String("envvars", "", "Environment variables to pass on to container, in the format VAR=val and separated by ','. If you want to do some custom stuff in your container.")
 
 	image := "minipot-ubuntu:1"
+	//imageParts := strings.Split(*imageflag, ":")
 
 	flag.Parse()
 
@@ -92,14 +98,14 @@ func main() {
 
 	if *networkmode != "none" &&
 		*networkmode != "bridge" &&
-		*networkmode != "host" &&
+		*networkmode != "host" {
 		logger.Println("No valid network mode given.")
 		os.Exit(ERR_DOCKER_INVALID_NETWORK_MODE)
 	}
 
 	logger.Println("Starting minipot")
 	logger.Println("Connecting to Docker engine")
-	//ctx := context.Background()
+	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
@@ -111,6 +117,61 @@ func main() {
 	// 	os.Exit(ERR_IMAGE_PULL)
 	// }
 
+	buf := new(bytes.Buffer)
+	tw := tar.NewWriter(buf)
+
+	logger.Println("build")
+	readDockerFile := []byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE)
+
+	tarHeader := &tar.Header{
+		Name: "Dockerfile",
+		Size: int64(len(readDockerFile)),
+	}
+	err = tw.WriteHeader(tarHeader)
+	if err != nil {
+		log.Fatal(err, " :unable to write tar header")
+	}
+	_, err = tw.Write(readDockerFile)
+	if err != nil {
+		log.Fatal(err, " :unable to write tar body")
+	}
+
+	tarHeader = &tar.Header{
+		Name: "entrypoint.sh",
+		Size: int64(len([]byte(ENTRYPOINT))),
+	}
+	err = tw.WriteHeader(tarHeader)
+	if err != nil {
+		log.Fatal(err, " :unable to write tar header")
+	}
+	_, err = tw.Write([]byte(ENTRYPOINT))
+	if err != nil {
+		log.Fatal(err, " :unable to write tar body")
+	}
+
+	dockerFileTarReader := bytes.NewReader(buf.Bytes())
+
+	imageBuildResponse, err := cli.ImageBuild(
+		ctx,
+		dockerFileTarReader,
+		types.ImageBuildOptions{
+			Context:    dockerFileTarReader,
+			Dockerfile: "Dockerfile",
+			Remove:     true,
+			Tags:       []string{"minipot-client-env:latest"}})
+	if err != nil {
+		log.Fatal(err, " :unable to build docker image")
+	}
+	defer imageBuildResponse.Body.Close()
+	_, err = io.Copy(os.Stdout, imageBuildResponse.Body)
+	if err != nil {
+		log.Fatal(err, " :unable to read image build response")
+	}
+	logger.Println("build done")
+
+	//
+	//
+	//
 	privateBytes, err := ioutil.ReadFile("fake_id_rsa")
 	if err != nil {
 		logger.Println("Failed to load private key: ", err)
@@ -234,7 +295,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	// logger.Println("New cmd: ", newCmd)
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image:        session.image,
+		Image:        "minipot-client-env:latest",
 		AttachStderr: true,
 		AttachStdin:  true,
 		Tty:          true,
