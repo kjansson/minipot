@@ -60,11 +60,11 @@ type sessionData struct {
 	timedOutBySession    bool
 	timedOutByNoInput    bool
 	environmentVariables []string
+	authSignal           chan bool
 }
 
 func main() {
-
-	image := flag.String("image", "ubuntu:18.04", "Image to use as user environment.")
+	//	image := flag.String("image", "ubuntu:18.04", "Image to use as user environment.")
 	debug := flag.Bool("debug", false, "Enable debug output.")
 	outputDir := flag.String("outputdir", "./", "Directory to output session log files to.")
 	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
@@ -73,6 +73,8 @@ func main() {
 	sessionTimeout := flag.Int("sessiontimeout", 1800, "Timeout in seconds before closing a session. Default to 1800.")
 	inputTimeout := flag.Int("inputtimeout", 300, "Timeout in seconds before closing a session when no input is detected. Default to 300.")
 	envVars := flag.String("envvars", "", "Environment variables to pass on to container, in the format VAR=val and separated by ','. If you want to do some custom stuff in your container.")
+
+	image := "minipot-ubuntu:1"
 
 	flag.Parse()
 
@@ -100,17 +102,17 @@ func main() {
 
 	logger.Println("Starting minipot")
 	logger.Println("Connecting to Docker engine")
-	ctx := context.Background()
+	//ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
-	logger.Printf("Pulling image %s", *image)
-	reader, err := cli.ImagePull(ctx, *image, types.ImagePullOptions{})
-	if err != nil {
-		logger.Println("Failed to pull image: ", err)
-		os.Exit(ERR_IMAGE_PULL)
-	}
+	// logger.Printf("Pulling image %s", image)
+	// reader, err := cli.ImagePull(ctx, image, types.ImagePullOptions{})
+	// if err != nil {
+	// 	logger.Println("Failed to pull image: ", err)
+	// 	os.Exit(ERR_IMAGE_PULL)
+	// }
 
 	privateBytes, err := ioutil.ReadFile("fake_id_rsa")
 	if err != nil {
@@ -146,10 +148,11 @@ func main() {
 			timeStart:            time.Now(),
 			hostname:             *hostname,
 			networkMode:          *networkmode,
-			image:                *image,
+			image:                image,
 			sessionTimeout:       *sessionTimeout,
 			inputTimeout:         *inputTimeout,
 			environmentVariables: environmentVariables,
+			authSignal:           make(chan bool),
 		}
 
 		config := &ssh.ServerConfig{
@@ -158,12 +161,12 @@ func main() {
 
 		config.AddHostKey(private)
 		logger.Printf("New SSH session (%d)\n", session.id)
-		go handleClient(nConn, reader, cli, config, logger, &session, *outputDir, *debug)
+		go handleClient(nConn, cli, config, logger, &session, *outputDir, *debug)
 		sid++
 	}
 }
 
-func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
+func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
 
 	ctx := context.Background()
 
@@ -181,12 +184,58 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		}()
 	}
 
-	defer reader.Close()
-	io.Copy(os.Stdout, reader)
+	// defer reader.Close()
+	// io.Copy(os.Stdout, reader)
+	////<-session.authSignal
 
 	if debug {
 		logger.Println("Creating container.")
 	}
+
+	_, chans, reqs, err := ssh.NewServerConn(nConn, config)
+	if err != nil {
+		log.Println("User failed to login: ", err)
+		cancel()
+	}
+	//	session.authSignal <- true
+
+	// // Create a temp container to determine default cmd
+	// temp, err := cli.ContainerCreate(ctx, &container.Config{
+	// 	Image:        session.image,
+	// 	AttachStderr: true,
+	// 	AttachStdin:  true,
+	// 	Tty:          true,
+	// 	AttachStdout: true,
+	// 	OpenStdin:    true,
+	// 	Hostname:     session.hostname,
+	// 	Env:          session.environmentVariables,
+	// },
+	// 	&container.HostConfig{
+	// 		AutoRemove:  true,
+	// 		NetworkMode: container.NetworkMode(session.networkMode),
+	// 	}, nil, nil, "")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// ci, err := cli.ContainerInspect(ctx, temp.ID)
+	// if err != nil {
+	// 	fmt.Println("nope")
+	// }
+	// cmd := ci.Config.Cmd
+	// cli.ContainerRemove(ctx, ci.ID, types.ContainerRemoveOptions{})
+	// if err != nil {
+	// 	logger.Println("Warning! Could not remove temporary container.")
+	// }
+
+	// // useradd -m -p <encryptedPassword> -s /bin/bash <user>
+
+	// newCmd := strslice.StrSlice([]string{"useradd", "-m", "-p", "thisisfake", session.user, "&&", "su", session.user, "&&"})
+	// for _, s := range cmd {
+	// 	newCmd = append(newCmd, s)
+	// }
+
+	// logger.Println("New cmd: ", newCmd)
+
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        session.image,
 		AttachStderr: true,
@@ -195,7 +244,7 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		AttachStdout: true,
 		OpenStdin:    true,
 		Hostname:     session.hostname,
-		Env:          session.environmentVariables,
+		Env:          append(session.environmentVariables, "USR="+session.user),
 	},
 		&container.HostConfig{
 			AutoRemove:  true,
@@ -255,19 +304,11 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			Stderr: true,
 			Stream: true,
 		}
-
 		hjresp, err := cli.ContainerAttach(ctx, resp.ID, containerAttachOpts)
 		if err != nil {
 			logger.Println("Error while attaching to container:", err)
 			os.Exit(ERR_CONTAINER_ATTACH)
 		}
-
-		_, chans, reqs, err := ssh.NewServerConn(nConn, config)
-		if err != nil {
-			log.Println("User failed to login: ", err)
-			cancel()
-		}
-
 		go ssh.DiscardRequests(reqs)
 
 		for newChannel := range chans {
@@ -293,7 +334,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			startReadChan := make(chan bool)
 
 			go func(w io.WriteCloser) { // Read from terminal and write to container input
-
 				startReadChan <- true // Not sure this is needed anymore, it's just to halt before we
 
 				w.Write(([]byte("\n"))) // Just send a LF to get a prompt at startup
@@ -327,7 +367,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			go func() { // Read output from container and write back to user
 				<-startReadChan
 				for {
-
 					data, err := hjresp.Reader.ReadByte()
 					if err != nil {
 						logger.Println("Read error from container output", err)
@@ -338,7 +377,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				}
 			}()
 		}
-
 	}()
 	<-rCtx.Done()
 	logger.Printf("(%d) SSH session ended\n", session.id)
@@ -462,7 +500,7 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 			time:     time.Now(),
 		}
 
-		if len(session.authAttempts) == 2 && c.User() == "root" {
+		if len(session.authAttempts) == 2 {
 			logger.Println("Accepting connection")
 			session.user = c.User()
 			session.password = string(pass)
