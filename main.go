@@ -68,7 +68,7 @@ type sessionData struct {
 }
 
 func main() {
-	baseimage := flag.String("baseimage", "ubuntu:18.04", "Image to use as base for user environment. Entrypoint will be overwritten.")
+	baseimage := flag.String("baseimage", "ubuntu:18.04", "Image to use as base for user environment build. Entrypoint will be overwritten.")
 	debug := flag.Bool("debug", false, "Enable debug output.")
 	outputDir := flag.String("outputdir", "./", "Directory to output session log files to.")
 	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
