@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"flag"
 	"fmt"
@@ -45,39 +46,39 @@ const ERR_DOCKER_IMAGE_BUILD = 8
 const ERR_TAR_WRITE_HEADER = 8
 const ERR_TAR_WRITE_BODY = 9
 
-type input struct {
-	data string
-	time time.Time
+type Input struct {
+	Data string
+	Time time.Time
 }
 
 type authAttempt struct {
-	username   string
-	password   string
-	time       time.Time
-	successful bool
+	Username   string
+	Password   string
+	Time       time.Time
+	Successful bool
 }
 
 type sessionData struct {
-	id                   int
-	globalId             string
-	user                 string
-	password             string
-	hostname             string
-	sourceIp             string
-	clientVersion        string
-	timeStart            time.Time
-	timeEnd              time.Time
-	authAttempts         []authAttempt
-	userInput            []input
-	modifiedFiles        []string
-	networkMode          string
-	image                string
+	Id                   int
+	GlobalId             string
+	User                 string
+	Password             string
+	GuestEnvHostname     string
+	SourceIp             string
+	ClientVersion        string
+	TimeStart            time.Time
+	TimeEnd              time.Time
+	AuthAttempts         []authAttempt
+	UserInput            []Input
+	ModifiedFiles        []string
+	NetworkMode          string
+	Image                string
 	sessionTimeout       int
 	inputTimeout         int
-	timedOutBySession    bool
-	timedOutByNoInput    bool
+	TimedOutBySession    bool
+	TimedOutByNoInput    bool
 	environmentVariables []string
-	pcapEnabled          bool
+	PcapEnabled          bool
 }
 
 func main() {
@@ -303,15 +304,15 @@ func main() {
 		}
 
 		session := sessionData{
-			globalId:       *globalSessionId,
-			id:             sid,
-			timeStart:      time.Now(),
-			hostname:       *hostname,
-			networkMode:    *networkmode,
-			image:          *baseimage,
-			sessionTimeout: *sessionTimeout,
-			inputTimeout:   *inputTimeout,
-			pcapEnabled:    usePcap,
+			GlobalId:         *globalSessionId,
+			Id:               sid,
+			TimeStart:        time.Now(),
+			GuestEnvHostname: *hostname,
+			NetworkMode:      *networkmode,
+			Image:            *baseimage,
+			sessionTimeout:   *sessionTimeout,
+			inputTimeout:     *inputTimeout,
+			PcapEnabled:      usePcap,
 			// environmentVariables: environmentVariables,
 		}
 
@@ -320,7 +321,7 @@ func main() {
 		}
 
 		config.AddHostKey(private)
-		logger.Printf("New SSH session (%d)\n", session.id)
+		logger.Printf("New SSH session (%d)\n", session.Id)
 		go handleClient(nConn, cli, config, &session, *outputDir, *debug)
 		sid++
 	}
@@ -328,7 +329,7 @@ func main() {
 
 func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, session *sessionData, outputDir string, debug bool) {
 
-	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %d): ", APP_NAME, session.id), log.Ldate|log.Ltime|log.Lshortfile)
+	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %d): ", APP_NAME, session.Id), log.Ldate|log.Ltime|log.Lshortfile)
 
 	ctx := context.Background()
 
@@ -341,7 +342,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 		go func() {
 			time.Sleep(time.Duration(session.sessionTimeout) * time.Second) // Container timeout
-			session.timedOutBySession = true
+			session.TimedOutBySession = true
 			cancel()
 		}()
 	}
@@ -356,7 +357,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		cancel()
 	}
 
-	networkName := fmt.Sprintf("%s-%d", session.globalId, session.id)
+	networkName := fmt.Sprintf("%s-%d", session.GlobalId, session.Id)
 	_, err = cli.NetworkCreate(ctx, networkName, types.NetworkCreate{
 		Attachable: true,
 	})
@@ -371,12 +372,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		Tty:          true,
 		AttachStdout: true,
 		OpenStdin:    true,
-		Hostname:     session.hostname,
-		Env:          append(session.environmentVariables, "USR="+session.user),
+		Hostname:     session.GuestEnvHostname,
+		Env:          append(session.environmentVariables, "USR="+session.User),
 	},
 		&container.HostConfig{
 			AutoRemove:  true,
-			NetworkMode: container.NetworkMode(session.networkMode),
+			NetworkMode: container.NetworkMode(session.NetworkMode),
 		}, nil, nil, "")
 	if err != nil {
 		panic(err)
@@ -391,7 +392,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		panic(err)
 	}
 	var pcap = container.ContainerCreateCreatedBody{}
-	if session.pcapEnabled {
+	if session.PcapEnabled {
 		inspection, err := cli.ContainerInspect(ctx, resp.ID)
 		if err != nil {
 			logger.Println("Could not get container inspect:", err)
@@ -430,11 +431,11 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			} else if b == 9 {
 				line = fmt.Sprintf("%s<TAB>", line)
 			} else if b == 13 { // CR
-				i := input{
-					data: line,
-					time: time.Now(),
+				i := Input{
+					Data: line,
+					Time: time.Now(),
 				}
-				session.userInput = append(session.userInput, i)
+				session.UserInput = append(session.UserInput, i)
 				line = ""
 			} else {
 				line = fmt.Sprintf("%s%s", line, string(b))
@@ -451,7 +452,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 					select {
 					case <-timeoutchan:
 					case <-time.After(time.Duration(session.inputTimeout) * time.Second): // Make this configurable
-						session.timedOutByNoInput = true
+						session.TimedOutByNoInput = true
 						cancel()
 					}
 				}
@@ -540,7 +541,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}()
 	<-rCtx.Done()
 	logger.Printf("SSH session ended\n")
-	session.timeEnd = time.Now()
+	session.TimeEnd = time.Now()
 	nConn.Close()
 
 	cli.ContainerPause(ctx, resp.ID)
@@ -550,17 +551,24 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		if debug {
 			logger.Printf("Modified file: %s\n", d.Path)
 		}
-		session.modifiedFiles = append(session.modifiedFiles, d.Path)
+		session.ModifiedFiles = append(session.ModifiedFiles, d.Path)
 	}
 	logger.Printf("Killing container\n")
 	logger.Printf("Writing log\n")
-	createLog(*session, outputDir)
+	err = createLog(*session, outputDir)
+	if err != nil {
+		logger.Println("Error while writing log: ", err)
+	}
+	err = createJsonLog(*session, outputDir)
+	if err != nil {
+		logger.Println("Error while writing JSON log: ", err)
+	}
 	err = cli.ContainerKill(ctx, resp.ID, "SIGKILL")
 	if err != nil {
 		logger.Println("Error while killing container: ", err)
 	}
 
-	if session.pcapEnabled {
+	if session.PcapEnabled {
 		logger.Printf("Getting PCAP data\n")
 		ior, _, err := cli.CopyFromContainer(ctx, pcap.ID, "/session.pcap")
 		if err != nil {
@@ -602,7 +610,7 @@ func createPCAPFile(session sessionData, outputDir string, pcap []byte) error {
 		outputDir = fmt.Sprintf("%s/", outputDir)
 	}
 
-	filename := fmt.Sprintf("%s-%d.pcap", session.globalId, session.id)
+	filename := fmt.Sprintf("%s-%d.pcap", session.GlobalId, session.Id)
 	f, err := os.Create(outputDir + filename)
 	if err != nil {
 		return err
@@ -614,45 +622,70 @@ func createPCAPFile(session sessionData, outputDir string, pcap []byte) error {
 	return nil
 }
 
+func createJsonLog(session sessionData, outputDir string) error {
+
+	if !strings.HasSuffix(outputDir, "/") {
+		outputDir = fmt.Sprintf("%s/", outputDir)
+	}
+
+	jsonBytes, err := json.Marshal(session)
+	if err != nil {
+		return err
+	}
+
+	filename := fmt.Sprintf("%s-%d.json", session.GlobalId, session.Id)
+	f, err := os.Create(outputDir + filename)
+	if err != nil {
+		return err
+	}
+
+	f.WriteString(string(jsonBytes))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func createLog(session sessionData, outputDir string) error {
 
 	if !strings.HasSuffix(outputDir, "/") {
 		outputDir = fmt.Sprintf("%s/", outputDir)
 	}
 
-	filename := fmt.Sprintf("%s-%d", session.globalId, session.id)
+	filename := fmt.Sprintf("%s-%d", session.GlobalId, session.Id)
 	f, err := os.Create(outputDir + filename)
 	if err != nil {
 		return err
 	}
 
 	str := fmt.Sprintf("Log for session %d from address '%s'. Image '%s'. Network mode '%s'. Client version: '%s'\n",
-		session.id,
-		session.sourceIp,
-		session.image,
-		session.networkMode,
-		session.clientVersion)
+		session.Id,
+		session.SourceIp,
+		session.Image,
+		session.NetworkMode,
+		session.ClientVersion)
 	f.WriteString(str)
 	if err != nil {
 		return err
 	}
 
-	str = fmt.Sprintf("Start time: %s (%d)\n", session.timeStart.Format(time.UnixDate), session.timeStart.Unix())
+	str = fmt.Sprintf("Start time: %s (%d)\n", session.TimeStart.Format(time.UnixDate), session.TimeStart.Unix())
 	f.WriteString(str)
 	if err != nil {
 		return err
 	}
 
-	str = fmt.Sprintf("End time: %s (%d)\n", session.timeEnd.Format(time.UnixDate), session.timeEnd.Unix())
+	str = fmt.Sprintf("End time: %s (%d)\n", session.TimeEnd.Format(time.UnixDate), session.TimeEnd.Unix())
 	f.WriteString(str)
 	if err != nil {
 		return err
 	}
 
 	str = "Session end reason: "
-	if session.timedOutByNoInput {
+	if session.TimedOutByNoInput {
 		str = fmt.Sprintf("%sNo user input.\n", str)
-	} else if session.timedOutBySession {
+	} else if session.TimedOutBySession {
 		str = fmt.Sprintf("%sSession timeout reached.\n", str)
 	} else {
 		str = fmt.Sprintf("%sConnection closed.\n", str)
@@ -664,11 +697,11 @@ func createLog(session sessionData, outputDir string) error {
 	}
 
 	f.WriteString("Authentication attempts;\n")
-	for i, a := range session.authAttempts {
-		if a.successful {
-			str = fmt.Sprintf("Accepted attempt %d at %s: username: '%s', password '%s'\n", i+1, a.time.Format(time.UnixDate), a.username, a.password)
+	for i, a := range session.AuthAttempts {
+		if a.Successful {
+			str = fmt.Sprintf("Accepted attempt %d at %s: username: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Username, a.Password)
 		} else {
-			str = fmt.Sprintf("Rejected attempt %d at %s: username: '%s', password '%s'\n", i+1, a.time.Format(time.UnixDate), a.username, a.password)
+			str = fmt.Sprintf("Rejected attempt %d at %s: username: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Username, a.Password)
 		}
 		f.WriteString(str)
 		if err != nil {
@@ -677,15 +710,15 @@ func createLog(session sessionData, outputDir string) error {
 	}
 
 	f.WriteString("User input;\n")
-	for _, u := range session.userInput {
-		str := fmt.Sprintf("%s: '%s'\n", u.time.Format(time.UnixDate), u.data)
+	for _, u := range session.UserInput {
+		str := fmt.Sprintf("%s: '%s'\n", u.Time.Format(time.UnixDate), u.Data)
 		f.WriteString(str)
 		if err != nil {
 			return err
 		}
 	}
 	f.WriteString("File modified during session;\n")
-	for _, file := range session.modifiedFiles {
+	for _, file := range session.ModifiedFiles {
 		str := fmt.Sprintf("Path: %s\n", file)
 		f.WriteString(str)
 		if err != nil {
@@ -703,23 +736,23 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 		if debug {
 			logger.Printf("(DEBUG) Auth attempt: Username %s, password %s\n", c.User(), string(pass))
 		}
-		session.sourceIp = c.RemoteAddr().String()
-		session.clientVersion = string(c.ClientVersion())
+		session.SourceIp = c.RemoteAddr().String()
+		session.ClientVersion = string(c.ClientVersion())
 		a := authAttempt{
-			username: c.User(),
-			password: string(pass),
-			time:     time.Now(),
+			Username: c.User(),
+			Password: string(pass),
+			Time:     time.Now(),
 		}
 
-		if len(session.authAttempts) == 2 {
+		if len(session.AuthAttempts) == 2 {
 			logger.Println("Accepting connection")
-			session.user = c.User()
-			session.password = string(pass)
-			a.successful = true
-			session.authAttempts = append(session.authAttempts, a)
+			session.User = c.User()
+			session.Password = string(pass)
+			a.Successful = true
+			session.AuthAttempts = append(session.AuthAttempts, a)
 			return nil, nil
 		} else {
-			session.authAttempts = append(session.authAttempts, a)
+			session.AuthAttempts = append(session.AuthAttempts, a)
 		}
 		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
 	}
