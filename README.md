@@ -8,7 +8,7 @@ When a user is given access, a container is started just for that session. This 
 The SSH session is handled by the server and input/output is forwarded to and from the container, making it appear to the client that is actually has a direct SSH session. This also allows for capturing and controlling input and output, and controlling the environment, e.g. setting up a user for the accepted session.
 The session can be configured to timeout after a period of no input, or after a certain amount of time after SSH session starts, to not keep containers/attackers hanging around forever.
 Client information, authentication attempts, user input and file system changes are logged.  
-Packet capture can be enabled. It will run tcpdump in a separate container attached to the container network of the client, and PCAP files will be stored along with the normal log files.
+Packet capture can also be enabled. It will run tcpdump in a separate container attached to the container network of the client, and PCAP files will be stored along with the normal log files.
 Minipot is dead simple to use. Just an executable to run, while having Docker up and running. A single server can host many environments to handle sessions from attackers, how many simply depends on the size of the server and the image used.
 
 # Requirements
