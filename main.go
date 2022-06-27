@@ -4,10 +4,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -253,13 +256,25 @@ func main() {
 
 	logger.Println("Build complete")
 
-	privateBytes, err := ioutil.ReadFile("fake_id_rsa") // Needs some kind of private key
+	// privateBytes, err := ioutil.ReadFile("fake_id_rsa") // Needs some kind of private key
+	// if err != nil {
+	// 	logger.Println("Failed to load private key: ", err)
+	// 	os.Exit(ERR_PRIVATE_KEY_LOAD)
+	// }
+	privateKeyGen, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		logger.Println("Failed to load private key: ", err)
+		logger.Println("Cannot generate RSA key: ", err)
 		os.Exit(ERR_PRIVATE_KEY_LOAD)
 	}
+	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKeyGen)
 
-	private, err := ssh.ParsePrivateKey(privateBytes)
+	privateKeyBlock := &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: privateKeyBytes,
+	}
+	privateKey := pem.EncodeToMemory(privateKeyBlock)
+
+	private, err := ssh.ParsePrivateKey(privateKey)
 	if err != nil {
 		logger.Println("Failed to parse private key: ", err)
 		os.Exit(ERR_PRIVATE_KEY_PARSE)
