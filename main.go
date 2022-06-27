@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -20,13 +22,20 @@ import (
 	"github.com/docker/docker/client"
 )
 
-const ERR_IMAGE_PULL = 1
+const DOCKER_FILE_BASE = "COPY entrypoint.sh /entrypoint.sh\nRUN chmod +x /entrypoint.sh\nENTRYPOINT /entrypoint.sh\n"
+const ENTRYPOINT = "#!/bin/bash\nif [[ \"$USR\" != \"root\" ]]\nthen\nuseradd -m -p thisisfake $USR -s /bin/bash\nsu - $USR\nelse\nbash\nfi\n"
+const DOCKER_CLIENT_ENV_NAME = "minipot-client-env:latest"
+
+const ERR_FILE_OPEN = 1
 const ERR_PRIVATE_KEY_LOAD = 2
 const ERR_PRIVATE_KEY_PARSE = 3
 const ERR_SSH_SERVE = 4
 const ERR_SSH_ACCEPT = 5
 const ERR_CONTAINER_ATTACH = 6
 const ERR_DOCKER_INVALID_NETWORK_MODE = 7
+const ERR_DOCKER_IMAGE_BUILD = 8
+const ERR_TAR_WRITE_HEADER = 8
+const ERR_TAR_WRITE_BODY = 9
 
 type input struct {
 	data string
@@ -63,16 +72,14 @@ type sessionData struct {
 }
 
 func main() {
-
-	image := flag.String("image", "ubuntu:18.04", "Image to use as user environment.")
+	baseimage := flag.String("baseimage", "ubuntu:18.04", "Image to use as base for user environment build. Entrypoint will be overwritten.")
 	debug := flag.Bool("debug", false, "Enable debug output.")
 	outputDir := flag.String("outputdir", "./", "Directory to output session log files to.")
 	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
 	hostname := flag.String("hostname", "", "Hostname to use in container. Default is container default.")
-	networkmode := flag.String("networkmode", "none", "Docker network mode to use for containers. Defaults to 'none'. Use with caution!")
+	networkmode := flag.String("networkmode", "none", "Docker network mode to use for containers. Valid options are 'none', 'bridge' or 'host'. Defaults to 'none'. Use with caution!")
 	sessionTimeout := flag.Int("sessiontimeout", 1800, "Timeout in seconds before closing a session. Default to 1800.")
 	inputTimeout := flag.Int("inputtimeout", 300, "Timeout in seconds before closing a session when no input is detected. Default to 300.")
-	envVars := flag.String("envvars", "", "Environment variables to pass on to container, in the format VAR=val and separated by ','. If you want to do some custom stuff in your container.")
 
 	flag.Parse()
 
@@ -82,18 +89,9 @@ func main() {
 		globalSessionId = &tstr
 	}
 
-	environmentVariables := strings.Split(*envVars, ",")
-
-	for _, x := range environmentVariables {
-		logger.Println("ENV:", x)
-	}
-
 	if *networkmode != "none" &&
 		*networkmode != "bridge" &&
-		*networkmode != "host" &&
-		*networkmode != "overlay" &&
-		*networkmode != "ipvlan" &&
-		*networkmode != "macvlan" {
+		*networkmode != "host" {
 		logger.Println("No valid network mode given.")
 		os.Exit(ERR_DOCKER_INVALID_NETWORK_MODE)
 	}
@@ -105,14 +103,77 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	logger.Printf("Pulling image %s", *image)
-	reader, err := cli.ImagePull(ctx, *image, types.ImagePullOptions{})
+
+	// Create tarball with Dockerfile and entrypoint
+	buf := new(bytes.Buffer)
+	tarWriter := tar.NewWriter(buf)
+
+	logger.Println("Starting image build from ", *baseimage)
+	readDockerFile := []byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE)
+
+	tarHeader := &tar.Header{
+		Name: "Dockerfile",
+		Size: int64(len(readDockerFile)),
+	}
+	err = tarWriter.WriteHeader(tarHeader)
 	if err != nil {
-		logger.Println("Failed to pull image: ", err)
-		os.Exit(ERR_IMAGE_PULL)
+		log.Println("Error writing TAR header: ", err)
+		os.Exit(ERR_TAR_WRITE_HEADER)
+	}
+	_, err = tarWriter.Write(readDockerFile)
+	if err != nil {
+		log.Println("Error writing TAR body: ", err)
+		os.Exit(ERR_TAR_WRITE_BODY)
 	}
 
-	privateBytes, err := ioutil.ReadFile("fake_id_rsa")
+	tarHeader = &tar.Header{
+		Name: "entrypoint.sh",
+		Size: int64(len([]byte(ENTRYPOINT))),
+	}
+	err = tarWriter.WriteHeader(tarHeader)
+	if err != nil {
+		log.Println("Error writing TAR header: ", err)
+		os.Exit(ERR_TAR_WRITE_HEADER)
+	}
+	_, err = tarWriter.Write([]byte(ENTRYPOINT))
+	if err != nil {
+		log.Println("Error writing TAR body: ", err)
+		os.Exit(ERR_TAR_WRITE_BODY)
+	}
+
+	dockerContext := bytes.NewReader(buf.Bytes())
+
+	buildOutput := false
+	if *debug {
+		buildOutput = true
+	}
+
+	// Build image
+	imageBuildResponse, err := cli.ImageBuild(
+		ctx,
+		dockerContext,
+		types.ImageBuildOptions{
+			SuppressOutput: buildOutput,
+			Context:        dockerContext,
+			Dockerfile:     "Dockerfile",
+			Remove:         true,
+			Tags:           []string{DOCKER_CLIENT_ENV_NAME}})
+	if err != nil {
+		log.Println("Error building image: ", err)
+		os.Exit(ERR_DOCKER_IMAGE_BUILD)
+	}
+	defer imageBuildResponse.Body.Close()
+	if *debug {
+		_, err = io.Copy(os.Stdout, imageBuildResponse.Body)
+		if err != nil {
+			log.Println("Error reading image build response: ", err)
+			os.Exit(1)
+		}
+	}
+
+	logger.Println("Build complete")
+
+	privateBytes, err := ioutil.ReadFile("fake_id_rsa") // Needs some kind of private key
 	if err != nil {
 		logger.Println("Failed to load private key: ", err)
 		os.Exit(ERR_PRIVATE_KEY_LOAD)
@@ -141,15 +202,15 @@ func main() {
 		}
 
 		session := sessionData{
-			globalId:             *globalSessionId,
-			id:                   sid,
-			timeStart:            time.Now(),
-			hostname:             *hostname,
-			networkMode:          *networkmode,
-			image:                *image,
-			sessionTimeout:       *sessionTimeout,
-			inputTimeout:         *inputTimeout,
-			environmentVariables: environmentVariables,
+			globalId:       *globalSessionId,
+			id:             sid,
+			timeStart:      time.Now(),
+			hostname:       *hostname,
+			networkMode:    *networkmode,
+			image:          *baseimage,
+			sessionTimeout: *sessionTimeout,
+			inputTimeout:   *inputTimeout,
+			// environmentVariables: environmentVariables,
 		}
 
 		config := &ssh.ServerConfig{
@@ -158,12 +219,12 @@ func main() {
 
 		config.AddHostKey(private)
 		logger.Printf("New SSH session (%d)\n", session.id)
-		go handleClient(nConn, reader, cli, config, logger, &session, *outputDir, *debug)
+		go handleClient(nConn, cli, config, logger, &session, *outputDir, *debug)
 		sid++
 	}
 }
 
-func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, config *ssh.ServerConfig, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
+func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
 
 	ctx := context.Background()
 
@@ -181,21 +242,25 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 		}()
 	}
 
-	defer reader.Close()
-	io.Copy(os.Stdout, reader)
-
 	if debug {
 		logger.Println("Creating container.")
 	}
+
+	_, chans, reqs, err := ssh.NewServerConn(nConn, config)
+	if err != nil {
+		log.Println("User failed to login: ", err)
+		cancel()
+	}
+
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image:        session.image,
+		Image:        DOCKER_CLIENT_ENV_NAME,
 		AttachStderr: true,
 		AttachStdin:  true,
 		Tty:          true,
 		AttachStdout: true,
 		OpenStdin:    true,
 		Hostname:     session.hostname,
-		Env:          session.environmentVariables,
+		Env:          append(session.environmentVariables, "USR="+session.user),
 	},
 		&container.HostConfig{
 			AutoRemove:  true,
@@ -230,7 +295,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				line = fmt.Sprintf("%s%s", line, string(b))
 			}
 		}
-
 	}()
 
 	go func() {
@@ -255,19 +319,11 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			Stderr: true,
 			Stream: true,
 		}
-
 		hjresp, err := cli.ContainerAttach(ctx, resp.ID, containerAttachOpts)
 		if err != nil {
 			logger.Println("Error while attaching to container:", err)
 			os.Exit(ERR_CONTAINER_ATTACH)
 		}
-
-		_, chans, reqs, err := ssh.NewServerConn(nConn, config)
-		if err != nil {
-			log.Println("User failed to login: ", err)
-			cancel()
-		}
-
 		go ssh.DiscardRequests(reqs)
 
 		for newChannel := range chans {
@@ -293,7 +349,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			startReadChan := make(chan bool)
 
 			go func(w io.WriteCloser) { // Read from terminal and write to container input
-
 				startReadChan <- true // Not sure this is needed anymore, it's just to halt before we
 
 				w.Write(([]byte("\n"))) // Just send a LF to get a prompt at startup
@@ -327,7 +382,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 			go func() { // Read output from container and write back to user
 				<-startReadChan
 				for {
-
 					data, err := hjresp.Reader.ReadByte()
 					if err != nil {
 						logger.Println("Read error from container output", err)
@@ -338,7 +392,6 @@ func handleClient(nConn net.Conn, reader io.ReadCloser, cli *client.Client, conf
 				}
 			}()
 		}
-
 	}()
 	<-rCtx.Done()
 	logger.Printf("(%d) SSH session ended\n", session.id)
@@ -377,11 +430,11 @@ func createLog(session sessionData, outputDir string) error {
 		return err
 	}
 
-	str := fmt.Sprintf("Log for session %d from address %s. Image %s. Network mode %s. Client version: %s\n",
+	str := fmt.Sprintf("Log for session %d from address '%s'. Image '%s'. Network mode '%s'. Client version: '%s'\n",
 		session.id,
 		session.sourceIp,
-		session.networkMode,
 		session.image,
+		session.networkMode,
 		session.clientVersion)
 	f.WriteString(str)
 	if err != nil {
@@ -462,7 +515,7 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 			time:     time.Now(),
 		}
 
-		if len(session.authAttempts) == 2 && c.User() == "root" {
+		if len(session.authAttempts) == 2 {
 			logger.Println("Accepting connection")
 			session.user = c.User()
 			session.password = string(pass)
