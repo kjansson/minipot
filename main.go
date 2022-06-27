@@ -329,34 +329,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		logger.Println("Error while creating network. Might exist already, trying anyway.")
 	}
 
-	pcap, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: "minipot-pcap:latest",
-		// AttachStderr: true,
-		// AttachStdin:  true,
-		// Tty:          true,
-		// AttachStdout: true,
-		// OpenStdin:    true,
-	},
-		&container.HostConfig{
-			AutoRemove:  true,
-			NetworkMode: container.NetworkMode(session.networkMode),
-		}, &network.NetworkingConfig{
-			EndpointsConfig: map[string]*network.EndpointSettings{},
-		}, nil, "")
-	if err != nil {
-		panic(err)
-	}
-
-	err = cli.NetworkConnect(ctx, networkName, pcap.ID, &network.EndpointSettings{})
-	if err != nil {
-		logger.Println("Error connecting PCAP container to network: ", err)
-	}
-
-	err = cli.ContainerStart(ctx, pcap.ID, types.ContainerStartOptions{})
-	if err != nil {
-		panic(err)
-	}
-
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        DOCKER_CLIENT_ENV_NAME,
 		AttachStderr: true,
@@ -375,12 +347,46 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		panic(err)
 	}
 
-	err = cli.NetworkConnect(ctx, networkName, resp.ID, &network.EndpointSettings{})
-	if err != nil {
-		logger.Println("Error connecting guest container to network: ", err)
-	}
+	// err = cli.NetworkConnect(ctx, networkName, resp.ID, &network.EndpointSettings{})
+	// if err != nil {
+	// 	logger.Println("Error connecting guest container to network: ", err)
+	// }
 
 	if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+		panic(err)
+	}
+	inspection, err := cli.ContainerInspect(ctx, resp.ID)
+	if err != nil {
+		logger.Println("Could not get container inspect:", err)
+	}
+
+	name := inspection.Name
+
+	pcap, err := cli.ContainerCreate(ctx, &container.Config{
+		Image: "minipot-pcap:latest",
+		// AttachStderr: true,
+		// AttachStdin:  true,
+		// Tty:          true,
+		// AttachStdout: true,
+		// OpenStdin:    true,
+	},
+		&container.HostConfig{
+			AutoRemove:  true,
+			NetworkMode: container.NetworkMode("container:" + name),
+		}, &network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{},
+		}, nil, "")
+	if err != nil {
+		panic(err)
+	}
+
+	// err = cli.NetworkConnect(ctx, networkName, pcap.ID, &network.EndpointSettings{})
+	// if err != nil {
+	// 	logger.Println("Error connecting PCAP container to network: ", err)
+	// }
+
+	err = cli.ContainerStart(ctx, pcap.ID, types.ContainerStartOptions{})
+	if err != nil {
 		panic(err)
 	}
 
