@@ -24,14 +24,18 @@ import (
 
 const DOCKER_FILE_BASE = "COPY entrypoint.sh /entrypoint.sh\nRUN chmod +x /entrypoint.sh\nENTRYPOINT /entrypoint.sh\n"
 const ENTRYPOINT = "#!/bin/bash\nif [[ \"$USR\" != \"root\" ]]\nthen\nuseradd -m -p thisisfake $USR -s /bin/bash\nsu - $USR\nelse\nbash\nfi\n"
+const DOCKER_CLIENT_ENV_NAME = "minipot-client-env:latest"
 
-const ERR_IMAGE_PULL = 1
+const ERR_FILE_OPEN = 1
 const ERR_PRIVATE_KEY_LOAD = 2
 const ERR_PRIVATE_KEY_PARSE = 3
 const ERR_SSH_SERVE = 4
 const ERR_SSH_ACCEPT = 5
 const ERR_CONTAINER_ATTACH = 6
 const ERR_DOCKER_INVALID_NETWORK_MODE = 7
+const ERR_DOCKER_IMAGE_BUILD = 8
+const ERR_TAR_WRITE_HEADER = 8
+const ERR_TAR_WRITE_BODY = 9
 
 type input struct {
 	data string
@@ -106,6 +110,7 @@ func main() {
 	logger.Println("Starting image build from ", *baseimage)
 	readDockerFile := []byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE)
 
+	// Create tarball with Dockerfile and entrypoint
 	tarHeader := &tar.Header{
 		Name: "Dockerfile",
 		Size: int64(len(readDockerFile)),
@@ -113,12 +118,12 @@ func main() {
 	err = tarWriter.WriteHeader(tarHeader)
 	if err != nil {
 		log.Println("Error writing TAR header: ", err)
-		os.Exit(1)
+		os.Exit(ERR_TAR_WRITE_HEADER)
 	}
 	_, err = tarWriter.Write(readDockerFile)
 	if err != nil {
 		log.Println("Error writing TAR body: ", err)
-		os.Exit(1)
+		os.Exit(ERR_TAR_WRITE_BODY)
 	}
 
 	tarHeader = &tar.Header{
@@ -128,27 +133,34 @@ func main() {
 	err = tarWriter.WriteHeader(tarHeader)
 	if err != nil {
 		log.Println("Error writing TAR header: ", err)
-		os.Exit(1)
+		os.Exit(ERR_TAR_WRITE_HEADER)
 	}
 	_, err = tarWriter.Write([]byte(ENTRYPOINT))
 	if err != nil {
 		log.Println("Error writing TAR body: ", err)
-		os.Exit(1)
+		os.Exit(ERR_TAR_WRITE_BODY)
 	}
 
 	dockerContext := bytes.NewReader(buf.Bytes())
 
+	buildOutput := false
+	if *debug {
+		buildOutput = true
+	}
+
+	// Build image
 	imageBuildResponse, err := cli.ImageBuild(
 		ctx,
 		dockerContext,
 		types.ImageBuildOptions{
-			Context:    dockerContext,
-			Dockerfile: "Dockerfile",
-			Remove:     true,
-			Tags:       []string{"minipot-client-env:latest"}})
+			SuppressOutput: buildOutput,
+			Context:        dockerContext,
+			Dockerfile:     "Dockerfile",
+			Remove:         true,
+			Tags:           []string{DOCKER_CLIENT_ENV_NAME}})
 	if err != nil {
 		log.Println("Error building image: ", err)
-		os.Exit(1)
+		os.Exit(ERR_DOCKER_IMAGE_BUILD)
 	}
 	defer imageBuildResponse.Body.Close()
 	if *debug {
@@ -161,7 +173,7 @@ func main() {
 
 	logger.Println("Build complete")
 
-	privateBytes, err := ioutil.ReadFile("fake_id_rsa")
+	privateBytes, err := ioutil.ReadFile("fake_id_rsa") // Needs some kind of private key
 	if err != nil {
 		logger.Println("Failed to load private key: ", err)
 		os.Exit(ERR_PRIVATE_KEY_LOAD)
@@ -241,7 +253,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image:        "minipot-client-env:latest",
+		Image:        DOCKER_CLIENT_ENV_NAME,
 		AttachStderr: true,
 		AttachStdin:  true,
 		Tty:          true,
