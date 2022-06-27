@@ -95,11 +95,18 @@ func main() {
 		globalSessionId = &tstr
 	}
 
+	usePcap := *pcapEnabled
+
 	if *networkmode != "none" &&
 		*networkmode != "bridge" &&
 		*networkmode != "host" {
 		logger.Println("No valid network mode given.")
 		os.Exit(ERR_DOCKER_INVALID_NETWORK_MODE)
+	}
+
+	if *networkmode == "none" || *networkmode == "host" {
+		usePcap = false
+		logger.Println("WARNING: Disabling packet capture, only available in 'bridge' network mode.")
 	}
 
 	logger.Println("Starting minipot")
@@ -114,7 +121,7 @@ func main() {
 	buf := new(bytes.Buffer)
 	tarWriter := tar.NewWriter(buf)
 
-	if *pcapEnabled {
+	if usePcap {
 
 		logger.Println("Starting PCAP image build")
 		//readDockerFile := []byte(PCAP_DOCKER_FILE)
@@ -283,7 +290,7 @@ func main() {
 			image:          *baseimage,
 			sessionTimeout: *sessionTimeout,
 			inputTimeout:   *inputTimeout,
-			pcapEnabled:    *pcapEnabled,
+			pcapEnabled:    usePcap,
 			// environmentVariables: environmentVariables,
 		}
 
