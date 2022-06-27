@@ -240,7 +240,7 @@ func main() {
 		_, err = io.Copy(os.Stdout, imageBuildResponse.Body)
 		if err != nil {
 			log.Println("Error reading image build response: ", err)
-			os.Exit(1)
+			os.Exit(ERR_DOCKER_IMAGE_BUILD)
 		}
 	}
 
@@ -293,12 +293,14 @@ func main() {
 
 		config.AddHostKey(private)
 		logger.Printf("New SSH session (%d)\n", session.id)
-		go handleClient(nConn, cli, config, logger, &session, *outputDir, *debug)
+		go handleClient(nConn, cli, config, &session, *outputDir, *debug)
 		sid++
 	}
 }
 
-func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, logger *log.Logger, session *sessionData, outputDir string, debug bool) {
+func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, session *sessionData, outputDir string, debug bool) {
+
+	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %d):\t", "minipot", session.id), log.Ldate|log.Ltime|log.Lshortfile)
 
 	ctx := context.Background()
 
@@ -509,7 +511,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 	}()
 	<-rCtx.Done()
-	logger.Printf("(%d) SSH session ended\n", session.id)
+	logger.Printf("SSH session ended\n")
 	session.timeEnd = time.Now()
 	nConn.Close()
 
@@ -518,12 +520,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	diffs, err := cli.ContainerDiff(ctx, resp.ID)
 	for _, d := range diffs {
 		if debug {
-			logger.Printf("(%d) Modified file: %s\n", session.id, d.Path)
+			logger.Printf("Modified file: %s\n", d.Path)
 		}
 		session.modifiedFiles = append(session.modifiedFiles, d.Path)
 	}
-	logger.Printf("(%d) Killing container\n", session.id)
-	logger.Printf("(%d) Writing log\n", session.id)
+	logger.Printf("Killing container\n")
+	logger.Printf("Writing log\n")
 	createLog(*session, outputDir)
 	err = cli.ContainerKill(ctx, resp.ID, "SIGKILL")
 	if err != nil {
@@ -531,7 +533,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}
 
 	if session.pcapEnabled {
-		logger.Printf("(%d) Getting PCAP data\n", session.id)
+		logger.Printf("Getting PCAP data\n")
 		ior, _, err := cli.CopyFromContainer(ctx, pcap.ID, "/session.pcap")
 		if err != nil {
 			logger.Println("Error getting PCAP data: ", err)
@@ -548,13 +550,13 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			logger.Println("Error creating PCAP file: ", err)
 		}
 
-		logger.Printf("(%d) Killing PCAP container\n", session.id)
+		logger.Printf("Killing PCAP container\n")
 		err = cli.ContainerKill(ctx, pcap.ID, "SIGKILL")
 		if err != nil {
 			logger.Println("Error while killing container: ", err)
 		}
 	}
-	logger.Printf("(%d) All done\n", session.id)
+	logger.Printf("All done\n")
 
 }
 
