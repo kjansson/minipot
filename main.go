@@ -19,10 +19,13 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
 
 const DOCKER_FILE_BASE = "COPY entrypoint.sh /entrypoint.sh\nRUN chmod +x /entrypoint.sh\nENTRYPOINT /entrypoint.sh\n"
+const PCAP_DOCKER_FILE = "FROM alpine\nCOPY entrypoint.sh /entrypoint.sh\nRUN apk update && apk add tcpdump && chmod +x /entrypoint.sh\nENTRYPOINT /entrypoint.sh\n"
+const PCAP_ENTRYPOINT = "#!/bin/sh\ntcpdump -i any -s 65535 -w /session.pcap\n"
 const ENTRYPOINT = "#!/bin/bash\nif [[ \"$USR\" != \"root\" ]]\nthen\nuseradd -m -p thisisfake $USR -s /bin/bash\nsu - $USR\nelse\nbash\nfi\n"
 const DOCKER_CLIENT_ENV_NAME = "minipot-client-env:latest"
 
@@ -104,23 +107,89 @@ func main() {
 		panic(err)
 	}
 
-	// Create tarball with Dockerfile and entrypoint
+	// Create tarball with Dockerfile and entrypoint for PCAP image
 	buf := new(bytes.Buffer)
 	tarWriter := tar.NewWriter(buf)
 
-	logger.Println("Starting image build from ", *baseimage)
-	readDockerFile := []byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE)
+	logger.Println("Starting PCAP image build")
+	//readDockerFile := []byte(PCAP_DOCKER_FILE)
 
 	tarHeader := &tar.Header{
 		Name: "Dockerfile",
-		Size: int64(len(readDockerFile)),
+		Size: int64(len([]byte(PCAP_DOCKER_FILE))),
 	}
 	err = tarWriter.WriteHeader(tarHeader)
 	if err != nil {
 		log.Println("Error writing TAR header: ", err)
 		os.Exit(ERR_TAR_WRITE_HEADER)
 	}
-	_, err = tarWriter.Write(readDockerFile)
+	_, err = tarWriter.Write([]byte(PCAP_DOCKER_FILE))
+	if err != nil {
+		log.Println("Error writing TAR body: ", err)
+		os.Exit(ERR_TAR_WRITE_BODY)
+	}
+
+	tarHeader = &tar.Header{
+		Name: "entrypoint.sh",
+		Size: int64(len([]byte(PCAP_ENTRYPOINT))),
+	}
+	err = tarWriter.WriteHeader(tarHeader)
+	if err != nil {
+		log.Println("Error writing TAR header: ", err)
+		os.Exit(ERR_TAR_WRITE_HEADER)
+	}
+	_, err = tarWriter.Write([]byte(PCAP_ENTRYPOINT))
+	if err != nil {
+		log.Println("Error writing TAR body: ", err)
+		os.Exit(ERR_TAR_WRITE_BODY)
+	}
+
+	dockerContext := bytes.NewReader(buf.Bytes())
+
+	buildOutput := false
+	if *debug {
+		buildOutput = true
+	}
+
+	// Build image
+	imageBuildResponse, err := cli.ImageBuild(
+		ctx,
+		dockerContext,
+		types.ImageBuildOptions{
+			SuppressOutput: buildOutput,
+			Context:        dockerContext,
+			Dockerfile:     "Dockerfile",
+			Remove:         true,
+			Tags:           []string{"minipot-pcap:latest"}})
+	if err != nil {
+		log.Println("Error building image: ", err)
+		os.Exit(ERR_DOCKER_IMAGE_BUILD)
+	}
+	defer imageBuildResponse.Body.Close()
+	if *debug {
+		_, err = io.Copy(os.Stdout, imageBuildResponse.Body)
+		if err != nil {
+			log.Println("Error reading image build response: ", err)
+			os.Exit(1)
+		}
+	}
+
+	buf = new(bytes.Buffer)
+	tarWriter = tar.NewWriter(buf)
+
+	logger.Println("Starting image build from ", *baseimage)
+	//readDockerFile = []byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE)
+
+	tarHeader = &tar.Header{
+		Name: "Dockerfile",
+		Size: int64(len([]byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE))),
+	}
+	err = tarWriter.WriteHeader(tarHeader)
+	if err != nil {
+		log.Println("Error writing TAR header: ", err)
+		os.Exit(ERR_TAR_WRITE_HEADER)
+	}
+	_, err = tarWriter.Write([]byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE))
 	if err != nil {
 		log.Println("Error writing TAR body: ", err)
 		os.Exit(ERR_TAR_WRITE_BODY)
@@ -141,15 +210,15 @@ func main() {
 		os.Exit(ERR_TAR_WRITE_BODY)
 	}
 
-	dockerContext := bytes.NewReader(buf.Bytes())
+	dockerContext = bytes.NewReader(buf.Bytes())
 
-	buildOutput := false
-	if *debug {
-		buildOutput = true
-	}
+	// buildOutput := false
+	// if *debug {
+	// 	buildOutput = true
+	// }
 
 	// Build image
-	imageBuildResponse, err := cli.ImageBuild(
+	imageBuildResponse, err = cli.ImageBuild(
 		ctx,
 		dockerContext,
 		types.ImageBuildOptions{
@@ -252,6 +321,42 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		cancel()
 	}
 
+	networkName := fmt.Sprintf("%s-%d", session.globalId, session.id)
+	_, err = cli.NetworkCreate(ctx, networkName, types.NetworkCreate{
+		Attachable: true,
+	})
+	if err != nil {
+		logger.Println("Error while creating network. Might exist already, trying anyway.")
+	}
+
+	pcap, err := cli.ContainerCreate(ctx, &container.Config{
+		Image: "minipot-pcap:latest",
+		// AttachStderr: true,
+		// AttachStdin:  true,
+		// Tty:          true,
+		// AttachStdout: true,
+		// OpenStdin:    true,
+	},
+		&container.HostConfig{
+			AutoRemove:  true,
+			NetworkMode: container.NetworkMode(session.networkMode),
+		}, &network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{},
+		}, nil, "")
+	if err != nil {
+		panic(err)
+	}
+
+	err = cli.NetworkConnect(ctx, networkName, pcap.ID, &network.EndpointSettings{})
+	if err != nil {
+		logger.Println("Error connecting PCAP container to network: ", err)
+	}
+
+	err = cli.ContainerStart(ctx, pcap.ID, types.ContainerStartOptions{})
+	if err != nil {
+		panic(err)
+	}
+
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        DOCKER_CLIENT_ENV_NAME,
 		AttachStderr: true,
@@ -269,6 +374,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	if err != nil {
 		panic(err)
 	}
+
+	err = cli.NetworkConnect(ctx, networkName, resp.ID, &network.EndpointSettings{})
+	if err != nil {
+		logger.Println("Error connecting guest container to network: ", err)
+	}
+
 	if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		panic(err)
 	}
@@ -408,14 +519,67 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		session.modifiedFiles = append(session.modifiedFiles, d.Path)
 	}
 	logger.Printf("(%d) Killing container\n", session.id)
-	logger.Println("Writing log")
+	logger.Printf("(%d) Writing log\n", session.id)
 	createLog(*session, outputDir)
-	err = cli.ContainerKill(ctx, resp.ID, "SIGINT")
+	err = cli.ContainerKill(ctx, resp.ID, "SIGKILL")
 	if err != nil {
 		logger.Println("Error while killing container: ", err)
-	} else {
-		logger.Printf("(%d) All done\n", session.id)
 	}
+
+	logger.Printf("(%d) Getting PCAP data\n", session.id)
+	ior, _, err := cli.CopyFromContainer(ctx, pcap.ID, "/session.pcap")
+	if err != nil {
+		logger.Println("Error getting PCAP data: ", err)
+	}
+	defer ior.Close()
+	//	pcapData := make([]byte, 10000000)
+	// n, err := ior.Read(pcapData)
+	// if err != nil {
+	// 	logger.Println("Error reading PCAP data: ", err)
+	// }
+	// logger.Println("Read ", n, "bytes of NCAP data.")
+
+	tarReader := tar.NewReader(ior)
+	tarReader.Next()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(tarReader)
+
+	// n, err := tarReader.Read(pcapData)
+	// if err != nil {
+	// 	logger.Println("Error reading PCAP data: ", err)
+	// }
+	// logger.Println("Read ", n, "bytes of NCAP data.")
+	err = createPCAPFile(*session, outputDir, buf.Bytes())
+	if err != nil {
+		logger.Println("Error creating PCAP file: ", err)
+	}
+
+	logger.Printf("(%d) Killing PCAP container\n", session.id)
+	err = cli.ContainerKill(ctx, pcap.ID, "SIGKILL")
+	if err != nil {
+		logger.Println("Error while killing container: ", err)
+	}
+
+	logger.Printf("(%d) All done\n", session.id)
+
+}
+
+func createPCAPFile(session sessionData, outputDir string, pcap []byte) error {
+
+	if !strings.HasSuffix(outputDir, "/") {
+		outputDir = fmt.Sprintf("%s/", outputDir)
+	}
+
+	filename := fmt.Sprintf("%s-%d.pcap", session.globalId, session.id)
+	f, err := os.Create(outputDir + filename)
+	if err != nil {
+		return err
+	}
+	f.Write(pcap)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func createLog(session sessionData, outputDir string) error {
