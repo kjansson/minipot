@@ -37,6 +37,7 @@ func main() {
 	inputTimeout := flag.Int("inputtimeout", 300, "Timeout in seconds before closing a session when no input is detected. Default to 300.")
 	pcapEnabled := flag.Bool("pcap", false, "Enable packet capture. Could potentially use up a lot of disk space.")
 	privateKeyFile := flag.String("privatekey", "", "Path to private key for SSH server if providing your own is preferable. If left empty, one will be created for each session.")
+	sshBindAddress := flag.String("bindaddress", "0.0.0.0:22", "SSH bind address and port in format 'ip:port'. Default is '0.0.0.0:22'")
 
 	flag.Parse()
 
@@ -184,7 +185,7 @@ func main() {
 	}
 
 	logger.Println("Serving SSH")
-	listener, err := net.Listen("tcp", "0.0.0.0:22")
+	listener, err := net.Listen("tcp", *sshBindAddress)
 	if err != nil {
 		logger.Println("SSH listen failed: ", err)
 		os.Exit(ERR_SSH_SERVE)
