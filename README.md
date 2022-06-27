@@ -30,10 +30,10 @@ go build
 -debug          # Set to =true to enable debug output.
 -outputdir      # Which path to output session log files to. Defaults to current working directory.
 -id             # Global session ID. Used for log file names etc. Defaults to epoch.
--networkmode    # Docker network mode to use for container. Defaults to "none". Use with caution!
+-networkmode    # Docker network mode to use for container. Can be 'none', 'bridge' or 'host'. Defaults to "none". 
 -sessiontimeout # Number of seconds before closing a session. Defaults to 1800.
 -inputtimeout   # Number of seconds before closing a session if no user input is detected. Zero or less disables timeout. Defaults to 300.
--pcap           # Enables packet capture. 
+-pcap           # Enables packet capture. Only available when using '-networkmode=bridge'.
 ```
 
 # How to run it
