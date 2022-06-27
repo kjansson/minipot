@@ -54,4 +54,4 @@ PCAP files will be stored (if enabled) with the same filename format as logs, an
 
 # Other information
 
-By default, containers have no network connection. This can be changed using the flag -networkmode, but do so at your own risk. Available modes are "none", "host", and "bridge".  
+By default, containers have no network connection. This can be changed using the flag -networkmode, but do so at your own risk. Available modes are "none", "host", and "bridge". Packet capture is only available in bridge mode.

@@ -94,7 +94,7 @@ func main() {
 
 	flag.Parse()
 
-	logger := log.New(os.Stderr, fmt.Sprintf("%s:\t", APP_NAME), log.Ldate|log.Ltime|log.Lshortfile)
+	logger := log.New(os.Stderr, fmt.Sprintf("%s: ", APP_NAME), log.Ldate|log.Ltime|log.Lshortfile)
 	if *globalSessionId == "" {
 		tstr := strconv.Itoa(int(time.Now().Unix()))
 		globalSessionId = &tstr
