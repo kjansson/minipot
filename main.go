@@ -41,10 +41,14 @@ const ERR_PRIVATE_KEY_PARSE = 3
 const ERR_SSH_SERVE = 4
 const ERR_SSH_ACCEPT = 5
 const ERR_CONTAINER_ATTACH = 6
-const ERR_DOCKER_INVALID_NETWORK_MODE = 7
-const ERR_DOCKER_IMAGE_BUILD = 8
-const ERR_TAR_WRITE_HEADER = 8
-const ERR_TAR_WRITE_BODY = 9
+const ERR_CONTAINER_CREATE = 7
+const ERR_CONTAINER_START = 8
+const ERR_CONTAINER_NETWORK_CONNECT = 9
+const ERR_DOCKER_INVALID_NETWORK_MODE = 10
+const ERR_DOCKER_IMAGE_BUILD = 11
+const ERR_DOCKER_ENGINE_CLIENT_CREATE = 12
+const ERR_TAR_WRITE_HEADER = 13
+const ERR_TAR_WRITE_BODY = 14
 
 type Input struct {
 	Data string
@@ -120,56 +124,35 @@ func main() {
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		panic(err)
+		logger.Println("Error whle creating Docker engine client: ", err)
+		os.Exit(ERR_DOCKER_ENGINE_CLIENT_CREATE)
 	}
 
 	// Create tarball with Dockerfile and entrypoint for PCAP image
 	buf := new(bytes.Buffer)
 	tarWriter := tar.NewWriter(buf)
 
+	buildOutput := false
+	if *debug {
+		buildOutput = true
+	}
+
 	if usePcap {
 
 		logger.Println("Starting PCAP image build")
-		//readDockerFile := []byte(PCAP_DOCKER_FILE)
 
-		tarHeader := &tar.Header{
-			Name: "Dockerfile",
-			Size: int64(len([]byte(PCAP_DOCKER_FILE))),
-		}
-		err = tarWriter.WriteHeader(tarHeader)
+		err = writeTar(tarWriter, "Dockerfile", []byte(PCAP_DOCKER_FILE))
 		if err != nil {
-			log.Println("Error writing TAR header: ", err)
-			os.Exit(ERR_TAR_WRITE_HEADER)
+			logger.Println("Error writing TAR: ", err)
 		}
-		_, err = tarWriter.Write([]byte(PCAP_DOCKER_FILE))
+		err = writeTar(tarWriter, "entrypoint.sh", []byte(PCAP_ENTRYPOINT))
 		if err != nil {
-			log.Println("Error writing TAR body: ", err)
-			os.Exit(ERR_TAR_WRITE_BODY)
-		}
-
-		tarHeader = &tar.Header{
-			Name: "entrypoint.sh",
-			Size: int64(len([]byte(PCAP_ENTRYPOINT))),
-		}
-		err = tarWriter.WriteHeader(tarHeader)
-		if err != nil {
-			log.Println("Error writing TAR header: ", err)
-			os.Exit(ERR_TAR_WRITE_HEADER)
-		}
-		_, err = tarWriter.Write([]byte(PCAP_ENTRYPOINT))
-		if err != nil {
-			log.Println("Error writing TAR body: ", err)
-			os.Exit(ERR_TAR_WRITE_BODY)
+			logger.Println("Error writing TAR: ", err)
 		}
 
 		dockerContext := bytes.NewReader(buf.Bytes())
 
-		buildOutput := false
-		if *debug {
-			buildOutput = true
-		}
-
-		// Build image
+		// Build PCAP image
 		imageBuildResponse, err := cli.ImageBuild(
 			ctx,
 			dockerContext,
@@ -188,51 +171,26 @@ func main() {
 			_, err = io.Copy(os.Stdout, imageBuildResponse.Body)
 			if err != nil {
 				log.Println("Error reading image build response: ", err)
-				os.Exit(1)
+				os.Exit(ERR_DOCKER_IMAGE_BUILD)
 			}
 		}
 	}
+
 	buf = new(bytes.Buffer)
 	tarWriter = tar.NewWriter(buf)
 
 	logger.Println("Starting image build from ", *baseimage)
 
-	tarHeader := &tar.Header{
-		Name: "Dockerfile",
-		Size: int64(len([]byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE))),
-	}
-	err = tarWriter.WriteHeader(tarHeader)
+	err = writeTar(tarWriter, "Dockerfile", []byte("FROM "+*baseimage+"\n"+DOCKER_FILE_BASE))
 	if err != nil {
-		log.Println("Error writing TAR header: ", err)
-		os.Exit(ERR_TAR_WRITE_HEADER)
+		logger.Println("Error writing TAR: ", err)
 	}
-	_, err = tarWriter.Write([]byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE))
+	err = writeTar(tarWriter, "entrypoint.sh", []byte(ENTRYPOINT))
 	if err != nil {
-		log.Println("Error writing TAR body: ", err)
-		os.Exit(ERR_TAR_WRITE_BODY)
-	}
-
-	tarHeader = &tar.Header{
-		Name: "entrypoint.sh",
-		Size: int64(len([]byte(ENTRYPOINT))),
-	}
-	err = tarWriter.WriteHeader(tarHeader)
-	if err != nil {
-		log.Println("Error writing TAR header: ", err)
-		os.Exit(ERR_TAR_WRITE_HEADER)
-	}
-	_, err = tarWriter.Write([]byte(ENTRYPOINT))
-	if err != nil {
-		log.Println("Error writing TAR body: ", err)
-		os.Exit(ERR_TAR_WRITE_BODY)
+		logger.Println("Error writing TAR: ", err)
 	}
 
 	dockerContext := bytes.NewReader(buf.Bytes())
-
-	buildOutput := false
-	if *debug {
-		buildOutput = true
-	}
 
 	// Build image
 	imageBuildResponse, err := cli.ImageBuild(
@@ -260,8 +218,8 @@ func main() {
 	logger.Println("Build complete")
 
 	var privateKey []byte
-	if *privateKeyFile != "" {
-		privateKey, err = ioutil.ReadFile(*privateKeyFile) // Needs some kind of private key
+	if *privateKeyFile != "" { // It needs some kind, either we supply one via file, or we create a new one for each session
+		privateKey, err = ioutil.ReadFile(*privateKeyFile)
 		if err != nil {
 			logger.Println("Failed to load private key: ", err)
 			os.Exit(ERR_PRIVATE_KEY_LOAD)
@@ -272,13 +230,10 @@ func main() {
 			logger.Println("Cannot generate RSA key: ", err)
 			os.Exit(ERR_PRIVATE_KEY_LOAD)
 		}
-		privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKeyGen)
-
-		privateKeyBlock := &pem.Block{
+		privateKey = pem.EncodeToMemory(&pem.Block{
 			Type:  "RSA PRIVATE KEY",
-			Bytes: privateKeyBytes,
-		}
-		privateKey = pem.EncodeToMemory(privateKeyBlock)
+			Bytes: x509.MarshalPKCS1PrivateKey(privateKeyGen),
+		})
 	}
 
 	private, err := ssh.ParsePrivateKey(privateKey)
@@ -380,16 +335,20 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			NetworkMode: container.NetworkMode(session.NetworkMode),
 		}, nil, nil, "")
 	if err != nil {
-		panic(err)
+		logger.Println("Error while creating container: ", err)
+		os.Exit(ERR_CONTAINER_CREATE)
 	}
 
 	err = cli.NetworkConnect(ctx, networkName, resp.ID, &network.EndpointSettings{})
 	if err != nil {
 		logger.Println("Error connecting guest container to network: ", err)
+		os.Exit(ERR_CONTAINER_NETWORK_CONNECT)
 	}
 
-	if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		panic(err)
+	err = cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
+	if err != nil {
+		logger.Println("Error while starting container: ", err)
+		os.Exit(ERR_CONTAINER_START)
 	}
 	var pcap = container.ContainerCreateCreatedBody{}
 	if session.PcapEnabled {
@@ -410,12 +369,14 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 				EndpointsConfig: map[string]*network.EndpointSettings{},
 			}, nil, "")
 		if err != nil {
-			panic(err)
+			logger.Println("Error while creating container: ", err)
+			os.Exit(ERR_CONTAINER_CREATE)
 		}
 
 		err = cli.ContainerStart(ctx, pcap.ID, types.ContainerStartOptions{})
 		if err != nil {
-			panic(err)
+			logger.Println("Error while starting container: ", err)
+			os.Exit(ERR_CONTAINER_START)
 		}
 	}
 
@@ -756,4 +717,22 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 		}
 		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
 	}
+}
+
+func writeTar(tarWriter *tar.Writer, name string, data []byte) error {
+
+	tarHeader := &tar.Header{
+		Name: name,
+		Size: int64(len(data)),
+	}
+
+	err := tarWriter.WriteHeader(tarHeader)
+	if err != nil {
+		return err
+	}
+	_, err = tarWriter.Write(data)
+	if err != nil {
+		return err
+	}
+	return nil
 }
