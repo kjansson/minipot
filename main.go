@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -89,6 +90,7 @@ func main() {
 	sessionTimeout := flag.Int("sessiontimeout", 1800, "Timeout in seconds before closing a session. Default to 1800.")
 	inputTimeout := flag.Int("inputtimeout", 300, "Timeout in seconds before closing a session when no input is detected. Default to 300.")
 	pcapEnabled := flag.Bool("pcap", false, "Enable packet capture. Could potentially use up a lot of disk space.")
+	privateKeyFile := flag.String("privatekey", "", "Path to private key for SSH server if providing your own is preferable. If left empty, one will be created for each session.")
 
 	flag.Parse()
 
@@ -256,23 +258,27 @@ func main() {
 
 	logger.Println("Build complete")
 
-	// privateBytes, err := ioutil.ReadFile("fake_id_rsa") // Needs some kind of private key
-	// if err != nil {
-	// 	logger.Println("Failed to load private key: ", err)
-	// 	os.Exit(ERR_PRIVATE_KEY_LOAD)
-	// }
-	privateKeyGen, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		logger.Println("Cannot generate RSA key: ", err)
-		os.Exit(ERR_PRIVATE_KEY_LOAD)
-	}
-	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKeyGen)
+	var privateKey []byte
+	if *privateKeyFile != "" {
+		privateKey, err = ioutil.ReadFile(*privateKeyFile) // Needs some kind of private key
+		if err != nil {
+			logger.Println("Failed to load private key: ", err)
+			os.Exit(ERR_PRIVATE_KEY_LOAD)
+		}
+	} else {
+		privateKeyGen, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			logger.Println("Cannot generate RSA key: ", err)
+			os.Exit(ERR_PRIVATE_KEY_LOAD)
+		}
+		privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKeyGen)
 
-	privateKeyBlock := &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: privateKeyBytes,
+		privateKeyBlock := &pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: privateKeyBytes,
+		}
+		privateKey = pem.EncodeToMemory(privateKeyBlock)
 	}
-	privateKey := pem.EncodeToMemory(privateKeyBlock)
 
 	private, err := ssh.ParsePrivateKey(privateKey)
 	if err != nil {
