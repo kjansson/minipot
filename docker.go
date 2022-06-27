@@ -20,8 +20,7 @@ const ENTRYPOINT = `
 #!/bin/bash
 if [[ \"$USR\" != \"root\" ]]
 then
-	useradd -m -p thisisfake $USR -s /
-	bin/bash
+	useradd -m -p thisisfake $USR -s /bin/bash
 	su - $USR
 else
 	bash
