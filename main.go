@@ -446,30 +446,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	session.TimeEnd = time.Now()
 	nConn.Close()
 
-	cli.ContainerPause(ctx, resp.ID)
-
-	diffs, err := cli.ContainerDiff(ctx, resp.ID)
-	for _, d := range diffs {
-		if debug {
-			logger.Printf("Modified file: %s\n", d.Path)
-		}
-		session.ModifiedFiles = append(session.ModifiedFiles, d.Path)
-	}
-	logger.Printf("Killing container\n")
-	logger.Printf("Writing log\n")
-	err = createLog(*session, outputDir)
-	if err != nil {
-		logger.Println("Error while writing log: ", err)
-	}
-	err = createJsonLog(*session, outputDir)
-	if err != nil {
-		logger.Println("Error while writing JSON log: ", err)
-	}
-	err = cli.ContainerKill(ctx, resp.ID, "SIGKILL")
-	if err != nil {
-		logger.Println("Error while killing container: ", err)
-	}
-
 	if session.PcapEnabled {
 		logger.Printf("Getting PCAP data\n")
 		ior, _, err := cli.CopyFromContainer(ctx, pcap.ID, "/session.pcap")
@@ -494,6 +470,33 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		if err != nil {
 			logger.Println("Error while killing container: ", err)
 		}
+	}
+
+	cli.ContainerPause(ctx, resp.ID)
+
+	diffs, err := cli.ContainerDiff(ctx, resp.ID)
+	for _, d := range diffs {
+		if debug {
+			logger.Printf("Modified file: %s\n", d.Path)
+		}
+		session.ModifiedFiles = append(session.ModifiedFiles, d.Path)
+	}
+	logger.Printf("Killing container\n")
+	logger.Printf("Writing log\n")
+	err = createLog(*session, outputDir)
+	if err != nil {
+		logger.Println("Error while writing log: ", err)
+	}
+	err = createJsonLog(*session, outputDir)
+	if err != nil {
+		logger.Println("Error while writing JSON log: ", err)
+	}
+
+	cli.ContainerUnpause(ctx, resp.ID)
+
+	err = cli.ContainerKill(ctx, resp.ID, "SIGKILL")
+	if err != nil {
+		logger.Println("Error while killing container: ", err)
 	}
 
 	logger.Println("Removing network.")
