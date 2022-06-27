@@ -34,6 +34,7 @@ go build
 -sessiontimeout # Number of seconds before closing a session. Defaults to 1800.
 -inputtimeout   # Number of seconds before closing a session if no user input is detected. Zero or less disables timeout. Defaults to 300.
 -pcap           # Enables packet capture. Only available when using '-networkmode=bridge'.
+-privatekey     # Path to private key for SSH server if providing your own is preferable. If left empty, one will be created for each session.
 ```
 
 # How to run it
