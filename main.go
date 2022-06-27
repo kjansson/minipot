@@ -565,17 +565,18 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		ior, _, err := cli.CopyFromContainer(ctx, pcap.ID, "/session.pcap")
 		if err != nil {
 			logger.Println("Error getting PCAP data: ", err)
-		}
-		defer ior.Close()
+		} else {
+			defer ior.Close()
 
-		tarReader := tar.NewReader(ior)
-		tarReader.Next()
-		buf := new(bytes.Buffer)
-		buf.ReadFrom(tarReader)
+			tarReader := tar.NewReader(ior)
+			tarReader.Next()
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(tarReader)
 
-		err = createPCAPFile(*session, outputDir, buf.Bytes())
-		if err != nil {
-			logger.Println("Error creating PCAP file: ", err)
+			err = createPCAPFile(*session, outputDir, buf.Bytes())
+			if err != nil {
+				logger.Println("Error creating PCAP file: ", err)
+			}
 		}
 
 		logger.Printf("Killing PCAP container\n")
