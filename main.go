@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"flag"
 	"fmt"
@@ -554,7 +555,14 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}
 	logger.Printf("Killing container\n")
 	logger.Printf("Writing log\n")
-	createLog(*session, outputDir)
+	err = createLog(*session, outputDir)
+	if err != nil {
+		logger.Println("Error while writing log: ", err)
+	}
+	err = createJsonLog(*session, outputDir)
+	if err != nil {
+		logger.Println("Error while writing JSON log: ", err)
+	}
 	err = cli.ContainerKill(ctx, resp.ID, "SIGKILL")
 	if err != nil {
 		logger.Println("Error while killing container: ", err)
@@ -611,6 +619,31 @@ func createPCAPFile(session sessionData, outputDir string, pcap []byte) error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func createJsonLog(session sessionData, outputDir string) error {
+
+	if !strings.HasSuffix(outputDir, "/") {
+		outputDir = fmt.Sprintf("%s/", outputDir)
+	}
+
+	jsonBytes, err := json.Marshal(session)
+	if err != nil {
+		return err
+	}
+
+	filename := fmt.Sprintf("%s-%d.json", session.GlobalId, session.Id)
+	f, err := os.Create(outputDir + filename)
+	if err != nil {
+		return err
+	}
+
+	f.WriteString(string(jsonBytes))
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
