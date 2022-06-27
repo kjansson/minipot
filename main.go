@@ -104,13 +104,13 @@ func main() {
 		panic(err)
 	}
 
+	// Create tarball with Dockerfile and entrypoint
 	buf := new(bytes.Buffer)
 	tarWriter := tar.NewWriter(buf)
 
 	logger.Println("Starting image build from ", *baseimage)
 	readDockerFile := []byte("FROM " + *baseimage + "\n" + DOCKER_FILE_BASE)
 
-	// Create tarball with Dockerfile and entrypoint
 	tarHeader := &tar.Header{
 		Name: "Dockerfile",
 		Size: int64(len(readDockerFile)),
