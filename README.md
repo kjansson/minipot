@@ -7,7 +7,7 @@ Minipot is a "fake" SSH server which accepts login with any username and passwor
 When a user is given access, a container is started just for that session. This container is prepared at runtime from a base image of your choice. Keep in mind that the entrypoint will be overwritten, so a standard OS base image is probably most suitable, like Ubuntu or Centos.  
 The SSH session is handled by the server and input/output is forwarded to and from the container, making it appear to the client that is actually has a direct SSH session. This also allows for capturing and controlling input and output, and controlling the environment, e.g. setting up a user for the accepted session.
 The session can be configured to timeout after a period of no input, or after a certain amount of time after SSH session starts, to not keep containers/attackers hanging around forever.
-Client information, authentication attempts, user input and file system changes are logged.
+Client information, authentication attempts, user input and file system changes are logged. Packet capture can be enabled. It will run in a separate container attached to the container network of the client, and PCAP files will be stored along with the normal log files.
 It is dead simple to use. Just an executable to run, and have Docker up and running. A single server can host many environments to handle sessions from attackers, how many simply depends on the size of the server and the image used.
 
 # Requirements
@@ -32,6 +32,7 @@ go build
 -networkmode    # Docker network mode to use for container. Defaults to "none". Use with caution!
 -sessiontimeout # Number of seconds before closing a session. Defaults to 1800.
 -inputtimeout   # Number of seconds before closing a session if no user input is detected. Zero or less disables timeout. Defaults to 300.
+-pcap           # Enables packet capture. 
 ```
 
 # How to run it
