@@ -47,7 +47,7 @@ go build
 ./minipot -baseimage centos:centos7 -debug=true -hostname=my-important-server-01 -outputdir=/var/log/minipot -id=mysession-1 -pcap=true
 ```
 # Packet capture
-Packet capture can be enabled by using the flag '-pcap=true'. It will run tcpdump in a separate container attached to the container network of the client (so to be invisible to the client), and PCAP files will be stored along with the normal log files. Be aware that it captures all traffic, which could potentially be CPU-intensive and take up some storage.
+Packet capture can be enabled by using the flag '-pcap=true'. It will run tcpdump in a separate container attached to the container network of the client (so to be invisible to the client), and PCAP files will be stored along with the regular log files. Be aware that it captures all traffic, which could potentially be CPU-intensive and take up some storage.
 
 # Logging
 Logs will be outputted to the chosen path, one text file for readability and one in JSON format.  
