@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"flag"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -27,87 +25,6 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
-
-const APP_NAME = "minipot"
-
-const DOCKER_FILE_BASE = `
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT /entrypoint.sh
-`
-
-const PCAP_DOCKER_FILE = `
-FROM alpine
-COPY entrypoint.sh /entrypoint.sh
-RUN apk update && apk add tcpdump && chmod +x /entrypoint.sh
-ENTRYPOINT /entrypoint.sh
-`
-const PCAP_ENTRYPOINT = `
-#!/bin/sh
-tcpdump -i any -s 65535 -w /session.pcap
-`
-const ENTRYPOINT = `
-#!/bin/bash
-if [[ \"$USR\" != \"root\" ]]
-then
-	useradd -m -p thisisfake $USR -s /
-	bin/bash
-	su - $USR
-else
-	bash
-fi
-`
-const DOCKER_CLIENT_ENV_NAME = "minipot-client-env:latest"
-
-const ERR_FILE_OPEN = 1
-const ERR_PRIVATE_KEY_LOAD = 2
-const ERR_PRIVATE_KEY_PARSE = 3
-const ERR_SSH_SERVE = 4
-const ERR_SSH_ACCEPT = 5
-const ERR_CONTAINER_ATTACH = 6
-const ERR_CONTAINER_CREATE = 7
-const ERR_CONTAINER_START = 8
-const ERR_CONTAINER_NETWORK_CONNECT = 9
-const ERR_DOCKER_INVALID_NETWORK_MODE = 10
-const ERR_DOCKER_IMAGE_BUILD = 11
-const ERR_DOCKER_ENGINE_CLIENT_CREATE = 12
-const ERR_TAR_WRITE_HEADER = 13
-const ERR_TAR_WRITE_BODY = 14
-
-type Input struct {
-	Data string
-	Time time.Time
-}
-
-type authAttempt struct {
-	Username   string
-	Password   string
-	Time       time.Time
-	Successful bool
-}
-
-type sessionData struct {
-	Id                   int
-	GlobalId             string
-	User                 string
-	Password             string
-	GuestEnvHostname     string
-	SourceIp             string
-	ClientVersion        string
-	TimeStart            time.Time
-	TimeEnd              time.Time
-	AuthAttempts         []authAttempt
-	UserInput            []Input
-	ModifiedFiles        []string
-	NetworkMode          string
-	Image                string
-	sessionTimeout       int
-	inputTimeout         int
-	TimedOutBySession    bool
-	TimedOutByNoInput    bool
-	environmentVariables []string
-	PcapEnabled          bool
-}
 
 func main() {
 	baseimage := flag.String("baseimage", "ubuntu:18.04", "Image to use as base for user environment build. Entrypoint will be overwritten.")
@@ -585,133 +502,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}
 
 	logger.Printf("All done\n")
-
-}
-
-func createPCAPFile(session sessionData, outputDir string, pcap []byte) error {
-
-	if !strings.HasSuffix(outputDir, "/") {
-		outputDir = fmt.Sprintf("%s/", outputDir)
-	}
-
-	filename := fmt.Sprintf("%s-%d.pcap", session.GlobalId, session.Id)
-	f, err := os.Create(outputDir + filename)
-	if err != nil {
-		return err
-	}
-	f.Write(pcap)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func createJsonLog(session sessionData, outputDir string) error {
-
-	if !strings.HasSuffix(outputDir, "/") {
-		outputDir = fmt.Sprintf("%s/", outputDir)
-	}
-
-	jsonBytes, err := json.Marshal(session)
-	if err != nil {
-		return err
-	}
-
-	filename := fmt.Sprintf("%s-%d.json", session.GlobalId, session.Id)
-	f, err := os.Create(outputDir + filename)
-	if err != nil {
-		return err
-	}
-
-	f.WriteString(string(jsonBytes))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func createLog(session sessionData, outputDir string) error {
-
-	if !strings.HasSuffix(outputDir, "/") {
-		outputDir = fmt.Sprintf("%s/", outputDir)
-	}
-
-	filename := fmt.Sprintf("%s-%d", session.GlobalId, session.Id)
-	f, err := os.Create(outputDir + filename)
-	if err != nil {
-		return err
-	}
-
-	str := fmt.Sprintf("Log for session %d from address '%s'. Image '%s'. Network mode '%s'. Client version: '%s'\n",
-		session.Id,
-		session.SourceIp,
-		session.Image,
-		session.NetworkMode,
-		session.ClientVersion)
-	f.WriteString(str)
-	if err != nil {
-		return err
-	}
-
-	str = fmt.Sprintf("Start time: %s (%d)\n", session.TimeStart.Format(time.UnixDate), session.TimeStart.Unix())
-	f.WriteString(str)
-	if err != nil {
-		return err
-	}
-
-	str = fmt.Sprintf("End time: %s (%d)\n", session.TimeEnd.Format(time.UnixDate), session.TimeEnd.Unix())
-	f.WriteString(str)
-	if err != nil {
-		return err
-	}
-
-	str = "Session end reason: "
-	if session.TimedOutByNoInput {
-		str = fmt.Sprintf("%sNo user input.\n", str)
-	} else if session.TimedOutBySession {
-		str = fmt.Sprintf("%sSession timeout reached.\n", str)
-	} else {
-		str = fmt.Sprintf("%sConnection closed.\n", str)
-	}
-
-	f.WriteString(str)
-	if err != nil {
-		return err
-	}
-
-	f.WriteString("Authentication attempts;\n")
-	for i, a := range session.AuthAttempts {
-		if a.Successful {
-			str = fmt.Sprintf("Accepted attempt %d at %s: username: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Username, a.Password)
-		} else {
-			str = fmt.Sprintf("Rejected attempt %d at %s: username: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Username, a.Password)
-		}
-		f.WriteString(str)
-		if err != nil {
-			return err
-		}
-	}
-
-	f.WriteString("User input;\n")
-	for _, u := range session.UserInput {
-		str := fmt.Sprintf("%s: '%s'\n", u.Time.Format(time.UnixDate), u.Data)
-		f.WriteString(str)
-		if err != nil {
-			return err
-		}
-	}
-	f.WriteString("File modified during session;\n")
-	for _, file := range session.ModifiedFiles {
-		str := fmt.Sprintf("Path: %s\n", file)
-		f.WriteString(str)
-		if err != nil {
-			return err
-		}
-	}
-	f.WriteString("Log end.\n")
-
-	return nil
 }
 
 func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
@@ -740,22 +530,4 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 		}
 		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
 	}
-}
-
-func writeTar(tarWriter *tar.Writer, name string, data []byte) error {
-
-	tarHeader := &tar.Header{
-		Name: name,
-		Size: int64(len(data)),
-	}
-
-	err := tarWriter.WriteHeader(tarHeader)
-	if err != nil {
-		return err
-	}
-	_, err = tarWriter.Write(data)
-	if err != nil {
-		return err
-	}
-	return nil
 }
