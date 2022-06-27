@@ -51,7 +51,7 @@ Packet capture can be enabled by using the flag '-pcap=true'. It will run tcpdum
 
 # Logging
 Logs will be outputted to the chosen path, one text file for readability and one in JSON format.  
-Filename format for text logs is 'id-sessionId', and the same for JSON but with .json as file ending.  
+Filename format for text logs is '{id}-{ssh-sessionid}', and the same for JSON but with .json as file ending.  
 Logs contain information about client, authentication attempts, user input (keystrokes), and files that have been modified during the session. 
 PCAP files will be stored (if enabled) with the same filename format as logs, with a .pcap suffix.
 
