@@ -4,6 +4,10 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
@@ -86,6 +90,7 @@ func main() {
 	sessionTimeout := flag.Int("sessiontimeout", 1800, "Timeout in seconds before closing a session. Default to 1800.")
 	inputTimeout := flag.Int("inputtimeout", 300, "Timeout in seconds before closing a session when no input is detected. Default to 300.")
 	pcapEnabled := flag.Bool("pcap", false, "Enable packet capture. Could potentially use up a lot of disk space.")
+	privateKeyFile := flag.String("privatekey", "", "Path to private key for SSH server if providing your own is preferable. If left empty, one will be created for each session.")
 
 	flag.Parse()
 
@@ -253,13 +258,29 @@ func main() {
 
 	logger.Println("Build complete")
 
-	privateBytes, err := ioutil.ReadFile("fake_id_rsa") // Needs some kind of private key
-	if err != nil {
-		logger.Println("Failed to load private key: ", err)
-		os.Exit(ERR_PRIVATE_KEY_LOAD)
+	var privateKey []byte
+	if *privateKeyFile != "" {
+		privateKey, err = ioutil.ReadFile(*privateKeyFile) // Needs some kind of private key
+		if err != nil {
+			logger.Println("Failed to load private key: ", err)
+			os.Exit(ERR_PRIVATE_KEY_LOAD)
+		}
+	} else {
+		privateKeyGen, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			logger.Println("Cannot generate RSA key: ", err)
+			os.Exit(ERR_PRIVATE_KEY_LOAD)
+		}
+		privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKeyGen)
+
+		privateKeyBlock := &pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: privateKeyBytes,
+		}
+		privateKey = pem.EncodeToMemory(privateKeyBlock)
 	}
 
-	private, err := ssh.ParsePrivateKey(privateBytes)
+	private, err := ssh.ParsePrivateKey(privateKey)
 	if err != nil {
 		logger.Println("Failed to parse private key: ", err)
 		os.Exit(ERR_PRIVATE_KEY_PARSE)
@@ -544,17 +565,18 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		ior, _, err := cli.CopyFromContainer(ctx, pcap.ID, "/session.pcap")
 		if err != nil {
 			logger.Println("Error getting PCAP data: ", err)
-		}
-		defer ior.Close()
+		} else {
+			defer ior.Close()
 
-		tarReader := tar.NewReader(ior)
-		tarReader.Next()
-		buf := new(bytes.Buffer)
-		buf.ReadFrom(tarReader)
+			tarReader := tar.NewReader(ior)
+			tarReader.Next()
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(tarReader)
 
-		err = createPCAPFile(*session, outputDir, buf.Bytes())
-		if err != nil {
-			logger.Println("Error creating PCAP file: ", err)
+			err = createPCAPFile(*session, outputDir, buf.Bytes())
+			if err != nil {
+				logger.Println("Error creating PCAP file: ", err)
+			}
 		}
 
 		logger.Printf("Killing PCAP container\n")
