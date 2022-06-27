@@ -556,6 +556,13 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			logger.Println("Error while killing container: ", err)
 		}
 	}
+
+	logger.Println("Removing network.")
+	err = cli.NetworkRemove(ctx, networkName)
+	if err != nil {
+		logger.Println("Warning: error while removing network: ", err)
+	}
+
 	logger.Printf("All done\n")
 
 }
