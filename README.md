@@ -9,7 +9,7 @@ The SSH session is handled by the server and input/output is forwarded to and fr
 The session can be configured to timeout after a period of no input, or after a certain amount of time after SSH session starts, to not keep containers/attackers hanging around forever.
 Client information, authentication attempts, SSH requests, user input and file system changes are logged. There's also a packet capture option.
   
-Minipot is dead simple to use. Just an executable to run, while having Docker up and running. 
+Minipot is dead simple to use. Just an executable to run, while having Docker up and running. It will run just fine without any arguments if you just want to try it out, but you can configure it to you liking if you want. Read more below.
 
 # Requirements
 * Docker engine running - https://docs.docker.com/engine/install/
