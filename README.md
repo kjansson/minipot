@@ -13,8 +13,8 @@ Client information, authentication attempts, user input and file system changes 
 Minipot is dead simple to use. Just an executable to run, while having Docker up and running. A single server can host many environments to handle sessions from attackers, how many simply depends on the size of the server and the image used.
 
 # Requirements
-* Docker engine running
-* Go for building binary
+* Docker engine running - https://docs.docker.com/engine/install/
+* Go for building binary - https://go.dev/doc/install
 
 # Images
 Tested with Ubuntu and Centos. Alpine has some issues and is not recommended at the moment.
