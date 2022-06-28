@@ -70,11 +70,6 @@ func main() {
 		os.Exit(ERR_DOCKER_ENGINE_CLIENT_CREATE)
 	}
 
-	// buildOutput := false // Enables/disables output on container build
-	// if *debug {
-	// 	buildOutput = true
-	// }
-
 	// Create tarball with Dockerfile and entrypoint for PCAP image
 	buf := new(bytes.Buffer)
 	tarWriter := tar.NewWriter(buf)
@@ -218,7 +213,6 @@ func main() {
 			sessionTimeout:   *sessionTimeout,
 			inputTimeout:     *inputTimeout,
 			PcapEnabled:      usePcap,
-			// environmentVariables: environmentVariables,
 		}
 
 		config := &ssh.ServerConfig{
