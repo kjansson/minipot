@@ -253,7 +253,9 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 
 	_, chans, reqs, err := ssh.NewServerConn(nConn, config)
 	if err != nil {
-		log.Println("User failed to login: ", err)
+		if debug {
+			log.Println("User failed to login: ", err)
+		}
 		session.LoginError = err.Error()
 		cancel()
 	}
