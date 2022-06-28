@@ -3,14 +3,13 @@
 Minipot is a minimalistic SSH honeypot written in Go leveraging the Docker engine for client environments. It is multi-user, has session control, user interaction logging and packet capture capabilities. It is written with user friendliness in mind, and requires minimal effort to build and run. 
 
 # How does it work?
-Minipot is a "fake" SSH server which accepts login with any username and password after a certain number of attempts.  
+Minipot is a "fake" SSH server which accepts login with any username and password after a given number of attempts.  
 When a user is given access, a container is started just for that session. This container is prepared at runtime from a base image of your choice. Keep in mind that the entrypoint will be overwritten, so a standard OS base image is probably most suitable, like Ubuntu or Centos.  
-The SSH session is handled by the server and input/output is forwarded to and from the container, making it appear to the client that is actually has a direct SSH session. This also allows for capturing and controlling input and output, and controlling the environment, e.g. setting up a user for the accepted session.
+The SSH session is handled by the server and input/output is forwarded to and from the container, making it appear to the client that is actually has a direct SSH session. This also allows for capturing and controlling input and output, and controlling the environment, e.g. setting up a legit user for the accepted session.
 The session can be configured to timeout after a period of no input, or after a certain amount of time after SSH session starts, to not keep containers/attackers hanging around forever.
 Client information, authentication attempts, SSH requests, user input and file system changes are logged. There's also a packet capture option.
- 
   
-Minipot is dead simple to use. Just an executable to run, while having Docker up and running. A single server can host many environments to handle sessions from attackers, how many simply depends on the size of the server and the image used.
+Minipot is dead simple to use. Just an executable to run, while having Docker up and running. 
 
 # Requirements
 * Docker engine running - https://docs.docker.com/engine/install/
