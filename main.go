@@ -92,7 +92,6 @@ func main() {
 			ctx,
 			bytes.NewReader(buf.Bytes()),
 			types.ImageBuildOptions{
-				//SuppressOutput: buildOutput,
 				Context:    bytes.NewReader(buf.Bytes()),
 				Dockerfile: "Dockerfile",
 				Remove:     true,
@@ -136,7 +135,6 @@ func main() {
 		ctx,
 		bytes.NewReader(buf.Bytes()),
 		types.ImageBuildOptions{
-			//	SuppressOutput: buildOutput,
 			Context:    bytes.NewReader(buf.Bytes()),
 			Dockerfile: "Dockerfile",
 			Remove:     true,
