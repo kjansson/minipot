@@ -16,7 +16,9 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/crypto/ssh"
 
@@ -392,13 +394,21 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			go func(in <-chan *ssh.Request) {
 				for req := range in {
 
+					payloadStripControl := strings.Map(func(r rune) rune {
+						if unicode.IsPrint(r) {
+							return r
+						}
+						return -1
+					}, string(req.Payload))
+
 					if debug {
 						logger.Println("New SSH request of type: ", req.Type)
-						logger.Println("Request payload: ", string(req.Payload))
+						logger.Println("Request payload: ", payloadStripControl)
 					}
+
 					request := sshRequest{
 						Type:    req.Type,
-						Payload: string(req.Payload),
+						Payload: payloadStripControl,
 					}
 					session.SSHRequests = append(session.SSHRequests, request)
 
