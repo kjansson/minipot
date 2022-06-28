@@ -282,12 +282,13 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		os.Exit(ERR_CONTAINER_CREATE)
 	}
 
-	err = cli.NetworkConnect(ctx, networkName, resp.ID, &network.EndpointSettings{})
-	if err != nil {
-		logger.Println("Error connecting guest container to network: ", err)
-		os.Exit(ERR_CONTAINER_NETWORK_CONNECT)
+	if session.NetworkMode != "none" {
+		err = cli.NetworkConnect(ctx, networkName, resp.ID, &network.EndpointSettings{})
+		if err != nil {
+			logger.Println("Error connecting guest container to network: ", err)
+			os.Exit(ERR_CONTAINER_NETWORK_CONNECT)
+		}
 	}
-
 	err = cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
 	if err != nil {
 		logger.Println("Error while starting container: ", err)
