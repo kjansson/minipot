@@ -53,6 +53,7 @@ type sessionData struct {
 	SSHRequests          []sshRequest
 	UserInput            []Input
 	ModifiedFiles        []string
+	LoginError           string
 	NetworkMode          string
 	Image                string
 	sessionTimeout       int
