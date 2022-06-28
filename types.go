@@ -32,6 +32,11 @@ type authAttempt struct {
 	Successful bool
 }
 
+type sshRequest struct {
+	Type    string
+	Payload string
+}
+
 // Session information, exported values are used in JSON log
 type sessionData struct {
 	Id                   int
@@ -44,6 +49,7 @@ type sessionData struct {
 	TimeStart            time.Time
 	TimeEnd              time.Time
 	AuthAttempts         []authAttempt
+	SSHRequests          []sshRequest
 	UserInput            []Input
 	ModifiedFiles        []string
 	NetworkMode          string

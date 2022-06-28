@@ -391,8 +391,17 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 
 			go func(in <-chan *ssh.Request) {
 				for req := range in {
-					// logger.Println("New SSH request of type: ", req.Type)
-					// logger.Println("Request payload: ", string(req.Payload))
+
+					if debug {
+						logger.Println("New SSH request of type: ", req.Type)
+						logger.Println("Request payload: ", string(req.Payload))
+					}
+					request := sshRequest{
+						Type:    req.Type,
+						Payload: string(req.Payload),
+					}
+					session.SSHRequests = append(session.SSHRequests, request)
+
 					switch req.Type {
 					case "shell":
 						req.Reply(true, nil)
