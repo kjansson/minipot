@@ -92,15 +92,13 @@ func main() {
 			logger.Println("Error writing TAR: ", err)
 		}
 
-		dockerContext := bytes.NewReader(buf.Bytes())
-
 		// Build PCAP image
 		imageBuildResponse, err := cli.ImageBuild(
 			ctx,
-			dockerContext,
+			bytes.NewReader(buf.Bytes()),
 			types.ImageBuildOptions{
 				//SuppressOutput: buildOutput,
-				Context:    dockerContext,
+				Context:    bytes.NewReader(buf.Bytes()),
 				Dockerfile: "Dockerfile",
 				Remove:     true,
 				Tags:       []string{"minipot-pcap:latest"}})
@@ -138,15 +136,13 @@ func main() {
 		logger.Println("Error writing TAR: ", err)
 	}
 
-	dockerContext := bytes.NewReader(buf.Bytes())
-
 	// Build image
 	imageBuildResponse, err := cli.ImageBuild(
 		ctx,
-		dockerContext,
+		bytes.NewReader(buf.Bytes()),
 		types.ImageBuildOptions{
 			//	SuppressOutput: buildOutput,
-			Context:    dockerContext,
+			Context:    bytes.NewReader(buf.Bytes()),
 			Dockerfile: "Dockerfile",
 			Remove:     true,
 			Tags:       []string{DOCKER_CLIENT_ENV_NAME}})
@@ -244,12 +240,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	newCtx := context.Background()
 	rCtx, cancel := context.WithCancel(newCtx)
 
-	if session.sessionTimeout > 0 {
+	if session.sessionTimeout > 0 { // Session timeout, cancel no matter what when this happens
 		if debug {
 			logger.Println("Session timeout is set to ", session.sessionTimeout, "seconds.")
 		}
 		go func() {
-			time.Sleep(time.Duration(session.sessionTimeout) * time.Second) // Container timeout
+			time.Sleep(time.Duration(session.sessionTimeout) * time.Second)
 			session.TimedOutBySession = true
 			cancel()
 		}()
@@ -265,12 +261,13 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		cancel()
 	}
 
+	// Create a new Docker network for this session, we don't want containers sharing networks
 	networkName := fmt.Sprintf("%s-%d", session.GlobalId, session.Id)
 	_, err = cli.NetworkCreate(ctx, networkName, types.NetworkCreate{
 		Attachable: true,
 	})
 	if err != nil {
-		logger.Println("Error while creating network. Might exist already, trying anyway.")
+		logger.Println("WARNING: Error while creating network. Might exist already, trying to create container anyway.")
 	}
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
@@ -281,7 +278,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		AttachStdout: true,
 		OpenStdin:    true,
 		Hostname:     session.GuestEnvHostname,
-		Env:          append(session.environmentVariables, "USR="+session.User),
+		Env:          append(session.environmentVariables, "USR="+session.User), // This is for the ovveride entrypoint, to create a user
 	},
 		&container.HostConfig{
 			AutoRemove:  true,
@@ -305,7 +302,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}
 	var pcap = container.ContainerCreateCreatedBody{}
 	if session.PcapEnabled {
-		inspection, err := cli.ContainerInspect(ctx, resp.ID)
+		inspection, err := cli.ContainerInspect(ctx, resp.ID) // Inspect container so we can get the name
 		if err != nil {
 			logger.Println("Could not get container inspect:", err)
 		}
@@ -317,7 +314,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		},
 			&container.HostConfig{
 				AutoRemove:  true,
-				NetworkMode: container.NetworkMode("container:" + name),
+				NetworkMode: container.NetworkMode("container:" + name), // Connect directly to containers network so stack is shared
 			}, &network.NetworkingConfig{
 				EndpointsConfig: map[string]*network.EndpointSettings{},
 			}, nil, "")
@@ -340,11 +337,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		line := ""
 		for {
 			b := <-inputChan
+			// Handle control characters and log them as well
 			if b == 127 { // DELETE
 				line = fmt.Sprintf("%s<BACKSPACE>", line)
-			} else if b == 9 {
+			} else if b == 9 { // TAB
 				line = fmt.Sprintf("%s<TAB>", line)
-			} else if b == 13 { // CR
+			} else if b == 13 { // CR, create new log line
 				i := Input{
 					Data: line,
 					Time: time.Now(),
@@ -359,6 +357,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 
 	go func() {
 
+		// Handle input timeout
 		timeoutchan := make(chan bool)
 		if session.inputTimeout > 0 {
 			go func() {
@@ -409,7 +408,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			startReadChan := make(chan bool)
 
 			go func(w io.WriteCloser) { // Read from terminal and write to container input
-				startReadChan <- true // Not sure this is needed anymore, it's just to halt before we
+				startReadChan <- true // Pause reading container output, we don't want to read anything before this
 
 				w.Write(([]byte("\n"))) // Just send a LF to get a prompt at startup
 
@@ -417,22 +416,22 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 				for {
 
 					data := make([]byte, 32)
-					n, err := channel.Read(data)
+					n, err := channel.Read(data) // Read from SSH channel
 					if err != nil {
 						logger.Println("SSH Channel read error: ", err)
 						cancel()
 						break
 					}
-					inputChan <- data[0]
+					inputChan <- data[0] // Send to input collector for later logging
 					if session.inputTimeout > 0 {
-						timeoutchan <- true
+						timeoutchan <- true // Send to input timeout handler
 					}
 					if n > 0 {
-						if data[0] == 4 { // EOT, we want to catch this to not kill the container
-							cancel()
+						if data[0] == 4 { // This is EOT, we want to catch this so client does not kill container
+							cancel() // Instead cancel so we can collect data and cleanup container
 							break
 						} else {
-							w.Write(data)
+							w.Write(data) // Forward to container input
 						}
 					}
 
@@ -440,43 +439,43 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			}(hjresp.Conn)
 
 			go func() { // Read output from container and write back to user
-				<-startReadChan
+				<-startReadChan // Wait for other goroutine to start
 				for {
-					data, err := hjresp.Reader.ReadByte()
+					data, err := hjresp.Reader.ReadByte() // Read output from container
 					if err != nil {
-						logger.Println("Read error from container output", err)
 						cancel()
 						break
 					}
-					channel.Write([]byte{data})
+					channel.Write([]byte{data}) // Forward to SSH channel
 				}
 			}()
 		}
 	}()
-	<-rCtx.Done()
+	<-rCtx.Done() // Something cancelled
 	logger.Printf("SSH session ended\n")
 	session.TimeEnd = time.Now()
 	nConn.Close()
 
 	if session.PcapEnabled {
 		logger.Printf("Getting PCAP data\n")
-		ior, _, err := cli.CopyFromContainer(ctx, pcap.ID, "/session.pcap")
+		ior, _, err := cli.CopyFromContainer(ctx, pcap.ID, "/session.pcap") // Copy PCAP file, comes as TAR archive
 		if err != nil {
-			logger.Println("Error getting PCAP data: ", err)
+			logger.Println("WARNING: Error getting PCAP data: ", err)
 		} else {
 			defer ior.Close()
 
+			// Get data from TAR archive
 			tarReader := tar.NewReader(ior)
 			tarReader.Next()
 			buf := new(bytes.Buffer)
 			buf.ReadFrom(tarReader)
 
-			err = createPCAPFile(*session, outputDir, buf.Bytes())
+			err = createPCAPFile(*session, outputDir, buf.Bytes()) // Create PCAP file in log dir
 			if err != nil {
-				logger.Println("Error creating PCAP file: ", err)
+				logger.Println("WARNING: Error creating PCAP file: ", err)
 			}
 		}
-
+		// Cleanup PCAP
 		logger.Printf("Killing PCAP container\n")
 		err = cli.ContainerKill(ctx, pcap.ID, "SIGKILL")
 		if err != nil {
@@ -484,8 +483,9 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 	}
 
-	cli.ContainerPause(ctx, resp.ID)
+	cli.ContainerPause(ctx, resp.ID) // Pause container so we can do diff
 
+	// Save modified file paths
 	diffs, err := cli.ContainerDiff(ctx, resp.ID)
 	for _, d := range diffs {
 		if debug {
@@ -493,33 +493,38 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 		session.ModifiedFiles = append(session.ModifiedFiles, d.Path)
 	}
-	logger.Printf("Killing container\n")
+
 	logger.Printf("Writing log\n")
-	err = createLog(*session, outputDir)
+	err = createLog(*session, outputDir) // Create text log
 	if err != nil {
-		logger.Println("Error while writing log: ", err)
+		logger.Println("WARNING: Error while writing log: ", err)
 	}
-	err = createJsonLog(*session, outputDir)
+	err = createJsonLog(*session, outputDir) // JSON log
 	if err != nil {
-		logger.Println("Error while writing JSON log: ", err)
+		logger.Println("WARNING: Error while writing JSON log: ", err)
 	}
 
-	cli.ContainerUnpause(ctx, resp.ID)
+	err = cli.ContainerUnpause(ctx, resp.ID) // Must unpause before kill
+	if err != nil {
+		logger.Println("WARNING: Error while unpausing container.")
+	}
 
+	logger.Printf("Killing container\n")
 	err = cli.ContainerKill(ctx, resp.ID, "SIGKILL")
 	if err != nil {
-		logger.Println("Error while killing container: ", err)
+		logger.Println("WARNING: Error while killing container: ", err)
 	}
 
 	logger.Println("Removing network.")
 	err = cli.NetworkRemove(ctx, networkName)
 	if err != nil {
-		logger.Println("Warning: error while removing network: ", err)
+		logger.Println("WARNING: error while removing network: ", err)
 	}
 
 	logger.Printf("All done\n")
 }
 
+// Wrapper for auth callback function, this is only here so we can save auth attempts in session
 func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 
 	return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
@@ -534,7 +539,7 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 			Time:     time.Now(),
 		}
 
-		if len(session.AuthAttempts) == 2 {
+		if len(session.AuthAttempts) == 2 { // Permit login on third attempt
 			logger.Println("Accepting connection")
 			session.User = c.User()
 			session.Password = string(pass)

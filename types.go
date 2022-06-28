@@ -31,6 +31,7 @@ type authAttempt struct {
 	Successful bool
 }
 
+// Session information, exported values are used in JSON log
 type sessionData struct {
 	Id                   int
 	GlobalId             string
