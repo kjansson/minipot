@@ -31,11 +31,13 @@ go build
 -debug          # Set to =true to enable debug output.
 -outputdir      # Which path to output session log files to. Defaults to current working directory.
 -id             # Global session ID. Used for log file names etc. Defaults to epoch.
+-hostname       # Hostname to use in container. Default is container default.
 -networkmode    # Docker network mode to use for container. Can be 'none', 'bridge' or 'host'. Defaults to "none". 
 -sessiontimeout # Number of seconds before closing a session. Defaults to 1800.
 -inputtimeout   # Number of seconds before closing a session if no user input is detected. Zero or less disables timeout. Defaults to 300.
 -pcap           # Enables packet capture. Only available when using '-networkmode=bridge'.
 -privatekey     # Path to private key for SSH server if providing your own is preferable. If left empty, one will be created for each session.
+-bindaddress    # SSH bind address and port in format 'ip:port'. Default is '0.0.0.0:22'.
 ```
 
 # How to run it
@@ -44,7 +46,7 @@ go build
 ./minipot
 
 # With some options
-./minipot -baseimage centos:centos7 -debug=true -hostname=my-important-server-01 -outputdir=/var/log/minipot -id=mysession-1 -pcap=true
+./minipot -baseimage centos:centos7 -debug=true -hostname=my-important-server-01 -outputdir=/var/log/minipot -id=tuesday-1 -pcap=true
 ```
 # Packet capture
 Packet capture can be enabled by using the flag '-pcap=true'. It will run tcpdump in a separate container attached to the container network of the client (so to be invisible to the client), and PCAP files will be stored along with the regular log files. Be aware that it captures all traffic, which could potentially be CPU-intensive and take up some storage.

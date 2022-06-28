@@ -38,6 +38,7 @@ func main() {
 	pcapEnabled := flag.Bool("pcap", false, "Enable packet capture. Could potentially use up a lot of disk space.")
 	privateKeyFile := flag.String("privatekey", "", "Path to private key for SSH server if providing your own is preferable. If left empty, one will be created for each session.")
 	sshBindAddress := flag.String("bindaddress", "0.0.0.0:22", "SSH bind address and port in format 'ip:port'. Default is '0.0.0.0:22'")
+	permitAttempt := flag.Int("permitattempt", 3, "Attempt number to accept connection on. Default is 3.")
 
 	flag.Parse()
 
@@ -75,7 +76,6 @@ func main() {
 	tarWriter := tar.NewWriter(buf)
 
 	if usePcap {
-
 		logger.Println("Starting PCAP image build")
 
 		err = writeTar(tarWriter, "Dockerfile", []byte(PCAP_DOCKER_FILE))
@@ -95,7 +95,7 @@ func main() {
 				Context:    bytes.NewReader(buf.Bytes()),
 				Dockerfile: "Dockerfile",
 				Remove:     true,
-				Tags:       []string{"minipot-pcap:latest"}})
+				Tags:       []string{PCAP_IMAGE}})
 		if err != nil {
 			log.Println("Error building image: ", err)
 			os.Exit(ERR_DOCKER_IMAGE_BUILD)
@@ -211,6 +211,7 @@ func main() {
 			sessionTimeout:   *sessionTimeout,
 			inputTimeout:     *inputTimeout,
 			PcapEnabled:      usePcap,
+			permitAttempt:    *permitAttempt,
 		}
 
 		config := &ssh.ServerConfig{
@@ -302,7 +303,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		name := inspection.Name
 
 		pcap, err = cli.ContainerCreate(ctx, &container.Config{
-			Image: "minipot-pcap:latest",
+			Image: PCAP_IMAGE,
 		},
 			&container.HostConfig{
 				AutoRemove:  true,
@@ -389,7 +390,8 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 
 			go func(in <-chan *ssh.Request) {
 				for req := range in {
-
+					// logger.Println("New SSH request of type: ", req.Type)
+					// logger.Println("Request payload: ", string(req.Payload))
 					switch req.Type {
 					case "shell":
 						req.Reply(true, nil)
@@ -531,7 +533,7 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 			Time:     time.Now(),
 		}
 
-		if len(session.AuthAttempts) == 2 { // Permit login on third attempt
+		if len(session.AuthAttempts) == session.permitAttempt-1 { // Permit login on third attempt
 			logger.Println("Accepting connection")
 			session.User = c.User()
 			session.Password = string(pass)

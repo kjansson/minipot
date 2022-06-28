@@ -3,6 +3,7 @@ package main
 import "time"
 
 const APP_NAME = "minipot"
+const PCAP_IMAGE = "minipot-pcap:latest"
 
 const ERR_FILE_OPEN = 1
 const ERR_PRIVATE_KEY_LOAD = 2
@@ -53,4 +54,5 @@ type sessionData struct {
 	TimedOutByNoInput    bool
 	environmentVariables []string
 	PcapEnabled          bool
+	permitAttempt        int
 }
