@@ -204,8 +204,8 @@ func main() {
 		}
 
 		session := sessionData{
-			GlobalId:         *globalSessionId,
-			Id:               sid,
+			SSHSessionID:     sid,
+			MinipotSessionID: *globalSessionId,
 			TimeStart:        time.Now(),
 			GuestEnvHostname: *hostname,
 			NetworkMode:      *networkmode,
@@ -222,7 +222,7 @@ func main() {
 		}
 
 		config.AddHostKey(private)
-		logger.Printf("New SSH session (%d)\n", session.Id)
+		logger.Printf("New SSH session (%d)\n", session.SSHSessionID)
 		go handleClient(nConn, cli, config, &session, *outputDir, *debug)
 		sid++
 	}
@@ -230,7 +230,7 @@ func main() {
 
 func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, session *sessionData, outputDir string, debug bool) {
 
-	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %d): ", APP_NAME, session.Id), log.Ldate|log.Ltime|log.Lshortfile)
+	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %d): ", APP_NAME, session.SSHSessionID), log.Ldate|log.Ltime|log.Lshortfile)
 
 	ctx := context.Background()
 	newCtx := context.Background()
@@ -261,7 +261,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}
 
 	// Create a new Docker network for this session, we don't want containers sharing networks
-	networkName := fmt.Sprintf("%s-%d", session.GlobalId, session.Id)
+	networkName := fmt.Sprintf("%s-%d", session.MinipotSessionID, session.SSHSessionID)
 	_, err = cli.NetworkCreate(ctx, networkName, types.NetworkCreate{
 		Attachable: true,
 	})

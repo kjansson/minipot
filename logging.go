@@ -19,7 +19,7 @@ func createJsonLog(session sessionData, outputDir string) error {
 		return err
 	}
 
-	filename := fmt.Sprintf("%s-%d.json", session.GlobalId, session.Id)
+	filename := fmt.Sprintf("%s-%d.json", session.MinipotSessionID, session.SSHSessionID)
 	f, err := os.Create(outputDir + filename)
 	if err != nil {
 		return err
@@ -39,14 +39,14 @@ func createLog(session sessionData, outputDir string) error {
 		outputDir = fmt.Sprintf("%s/", outputDir)
 	}
 
-	filename := fmt.Sprintf("%s-%d", session.GlobalId, session.Id)
+	filename := fmt.Sprintf("%s-%d", session.MinipotSessionID, session.SSHSessionID)
 	f, err := os.Create(outputDir + filename)
 	if err != nil {
 		return err
 	}
 
 	str := fmt.Sprintf("Log for session %d from address '%s'. Image '%s'. Network mode '%s'. Client version: '%s'\n",
-		session.Id,
+		session.SSHSessionID,
 		session.SourceIp,
 		session.Image,
 		session.NetworkMode,
@@ -136,7 +136,7 @@ func createPCAPFile(session sessionData, outputDir string, pcap []byte) error {
 		outputDir = fmt.Sprintf("%s/", outputDir)
 	}
 
-	filename := fmt.Sprintf("%s-%d.pcap", session.GlobalId, session.Id)
+	filename := fmt.Sprintf("%s-%d.pcap", session.MinipotSessionID, session.SSHSessionID)
 	f, err := os.Create(outputDir + filename)
 	if err != nil {
 		return err

@@ -40,8 +40,8 @@ type sshRequest struct {
 
 // Session information, exported values are used in JSON log
 type sessionData struct {
-	Id                   int
-	GlobalId             string
+	MinipotSessionID     string
+	SSHSessionID         int
 	User                 string
 	Password             string
 	GuestEnvHostname     string
