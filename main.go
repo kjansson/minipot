@@ -56,7 +56,7 @@ func main() {
 		os.Exit(ERR_DOCKER_INVALID_NETWORK_MODE)
 	}
 
-	if *networkmode == "none" || *networkmode == "host" {
+	if usePcap && (*networkmode == "none" || *networkmode == "host") {
 		usePcap = false
 		logger.Println("WARNING: Disabling packet capture, only available in 'bridge' network mode.")
 	}
@@ -70,14 +70,14 @@ func main() {
 		os.Exit(ERR_DOCKER_ENGINE_CLIENT_CREATE)
 	}
 
+	// buildOutput := false // Enables/disables output on container build
+	// if *debug {
+	// 	buildOutput = true
+	// }
+
 	// Create tarball with Dockerfile and entrypoint for PCAP image
 	buf := new(bytes.Buffer)
 	tarWriter := tar.NewWriter(buf)
-
-	buildOutput := false
-	if *debug {
-		buildOutput = true
-	}
 
 	if usePcap {
 
@@ -99,11 +99,11 @@ func main() {
 			ctx,
 			dockerContext,
 			types.ImageBuildOptions{
-				SuppressOutput: buildOutput,
-				Context:        dockerContext,
-				Dockerfile:     "Dockerfile",
-				Remove:         true,
-				Tags:           []string{"minipot-pcap:latest"}})
+				//SuppressOutput: buildOutput,
+				Context:    dockerContext,
+				Dockerfile: "Dockerfile",
+				Remove:     true,
+				Tags:       []string{"minipot-pcap:latest"}})
 		if err != nil {
 			log.Println("Error building image: ", err)
 			os.Exit(ERR_DOCKER_IMAGE_BUILD)
@@ -111,6 +111,12 @@ func main() {
 		defer imageBuildResponse.Body.Close()
 		if *debug {
 			_, err = io.Copy(os.Stdout, imageBuildResponse.Body)
+			if err != nil {
+				log.Println("Error reading image build response: ", err)
+				os.Exit(ERR_DOCKER_IMAGE_BUILD)
+			}
+		} else { // Read but discard output
+			_, err = io.Copy(ioutil.Discard, imageBuildResponse.Body)
 			if err != nil {
 				log.Println("Error reading image build response: ", err)
 				os.Exit(ERR_DOCKER_IMAGE_BUILD)
@@ -139,11 +145,11 @@ func main() {
 		ctx,
 		dockerContext,
 		types.ImageBuildOptions{
-			SuppressOutput: buildOutput,
-			Context:        dockerContext,
-			Dockerfile:     "Dockerfile",
-			Remove:         true,
-			Tags:           []string{DOCKER_CLIENT_ENV_NAME}})
+			//	SuppressOutput: buildOutput,
+			Context:    dockerContext,
+			Dockerfile: "Dockerfile",
+			Remove:     true,
+			Tags:       []string{DOCKER_CLIENT_ENV_NAME}})
 	if err != nil {
 		log.Println("Error building image: ", err)
 		os.Exit(ERR_DOCKER_IMAGE_BUILD)
@@ -151,6 +157,12 @@ func main() {
 	defer imageBuildResponse.Body.Close()
 	if *debug {
 		_, err = io.Copy(os.Stdout, imageBuildResponse.Body)
+		if err != nil {
+			log.Println("Error reading image build response: ", err)
+			os.Exit(ERR_DOCKER_IMAGE_BUILD)
+		}
+	} else { // Read but discard output
+		_, err = io.Copy(ioutil.Discard, imageBuildResponse.Body)
 		if err != nil {
 			log.Println("Error reading image build response: ", err)
 			os.Exit(ERR_DOCKER_IMAGE_BUILD)
