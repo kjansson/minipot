@@ -7,7 +7,7 @@ Minipot is a "fake" SSH server which accepts login with any username and passwor
 When a user is given access, a container is started just for that session. This container is prepared at runtime from a base image of your choice. Keep in mind that the entrypoint will be overwritten, so a standard OS base image is probably most suitable, like Ubuntu or Centos.  
 The SSH session is handled by the server and input/output is forwarded to and from the container, making it appear to the client that is actually has a direct SSH session. This also allows for capturing and controlling input and output, and controlling the environment, e.g. setting up a user for the accepted session.
 The session can be configured to timeout after a period of no input, or after a certain amount of time after SSH session starts, to not keep containers/attackers hanging around forever.
-Client information, authentication attempts, user input and file system changes are logged. There's also a packet capture option.
+Client information, authentication attempts, SSH requests, user input and file system changes are logged. There's also a packet capture option.
  
   
 Minipot is dead simple to use. Just an executable to run, while having Docker up and running. A single server can host many environments to handle sessions from attackers, how many simply depends on the size of the server and the image used.
@@ -54,7 +54,7 @@ Packet capture can be enabled by using the flag '-pcap=true'. It will run tcpdum
 # Logging
 Logs will be outputted to the chosen path, one text file for readability and one in JSON format.  
 Filename format for text logs is '{id}-{ssh-sessionid}', and the same for JSON but with .json as file ending.  
-Logs contain information about client, authentication attempts, user input (keystrokes), and files that have been modified during the session. 
+Logs contain information about client, requests, authentication attempts, user input (keystrokes), and files that have been modified during the session. 
 PCAP files will be stored (if enabled) with the same filename format as logs, with a .pcap suffix.
 
 # Other information

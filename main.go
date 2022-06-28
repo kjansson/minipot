@@ -385,6 +385,9 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 		go ssh.DiscardRequests(reqs)
 
+		startReadChan := make(chan bool)
+
+		// Start handling requests
 		for newChannel := range chans {
 			if newChannel.ChannelType() != "session" {
 				newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
@@ -408,6 +411,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 					if debug {
 						logger.Println("New SSH request of type: ", req.Type)
 						logger.Println("Request payload: ", payloadStripControl)
+						logger.Println("Want reply:", req.WantReply)
 					}
 
 					request := sshRequest{
@@ -419,20 +423,48 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 					switch req.Type {
 					case "shell":
 						req.Reply(true, nil)
+						startReadChan <- true // Pause reading container output, we don't want to read anything before this
+					case "exec":
+						args := strings.Split(payloadStripControl, " ")
+
+						cResp, err := cli.ContainerExecCreate(ctx, resp.ID, types.ExecConfig{
+							User:         session.User,
+							Cmd:          args,
+							AttachStdout: true,
+							AttachStderr: true,
+						})
+						if err == nil {
+							cHjResp, err := cli.ContainerExecAttach(ctx, cResp.ID, types.ExecStartCheck{})
+							if err != nil {
+								logger.Println("Error while attaching to exec: ", err)
+							}
+							defer cHjResp.Close()
+							data, err := ioutil.ReadAll(cHjResp.Reader)
+							if err != nil {
+								logger.Println("Error reading from exec attach: ", err)
+							}
+							// Seriously don't know why I have to slice up this slice, reading from exec attach returns garbage the first bytes
+							_, err = channel.Write(data[8:])
+							if err != nil {
+								logger.Println("Error while writing to SSH channel: ", err)
+							}
+							channel.Close()
+						} else {
+							logger.Println("Error while creating exec: ", err)
+							err = req.Reply(false, nil)
+							if err != nil {
+								logger.Println("Error while sending request reply:", err)
+							}
+						}
 					}
+
 				}
 			}(requests)
 
-			startReadChan := make(chan bool)
-
 			go func(w io.WriteCloser) { // Read from terminal and write to container input
-				startReadChan <- true // Pause reading container output, we don't want to read anything before this
-
-				w.Write(([]byte("\n"))) // Just send a LF to get a prompt at startup
 
 				defer channel.Close()
 				for {
-
 					data := make([]byte, 32)
 					n, err := channel.Read(data) // Read from SSH channel
 					if err != nil {
@@ -572,6 +604,7 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 	}
 }
 
+// Wrapper for auth callback, to include login attempts other than password
 func authLogWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, method string, err error) {
 
 	return func(c ssh.ConnMetadata, method string, err error) {

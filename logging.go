@@ -98,6 +98,14 @@ func createLog(session sessionData, outputDir string) error {
 			return err
 		}
 	}
+	f.WriteString("SSH requests;\n")
+	for _, r := range session.SSHRequests {
+		str = fmt.Sprintf("SSH request: Type '%s', payload '%s'\n", r.Type, r.Payload)
+	}
+	f.WriteString(str)
+	if err != nil {
+		return err
+	}
 
 	f.WriteString("User input;\n")
 	for _, u := range session.UserInput {
