@@ -218,6 +218,7 @@ func main() {
 
 		config := &ssh.ServerConfig{
 			PasswordCallback: authCallBackWrapper(&session, *debug, *logger),
+			AuthLogCallback:  authLogWrapper(&session, *debug, *logger),
 		}
 
 		config.AddHostKey(private)
@@ -543,7 +544,7 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 
 	return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 		if debug {
-			logger.Printf("(DEBUG) Auth attempt: Username %s, password %s\n", c.User(), string(pass))
+			logger.Printf("(DEBUG) Password auth attempt: Username %s, password %s\n", c.User(), string(pass))
 		}
 		session.SourceIp = c.RemoteAddr().String()
 		session.ClientVersion = string(c.ClientVersion())
@@ -551,9 +552,10 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 			Username: c.User(),
 			Password: string(pass),
 			Time:     time.Now(),
+			Method:   "password",
 		}
 
-		if len(session.AuthAttempts) == session.permitAttempt-1 { // Permit login on third attempt
+		if session.getPasswordAuthAttempts() == session.permitAttempt-1 { // Permit login on third attempt
 			logger.Println("Accepting connection")
 			session.User = c.User()
 			session.Password = string(pass)
@@ -565,4 +567,34 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 		}
 		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
 	}
+}
+
+func authLogWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, method string, err error) {
+
+	return func(c ssh.ConnMetadata, method string, err error) {
+		if method != "password" {
+			if debug {
+				logger.Printf("(DEBUG) Auth attempt: Username %s, method %s\n", c.User(), method)
+			}
+			a := authAttempt{
+				Username:   c.User(),
+				Time:       time.Now(),
+				Method:     method,
+				Successful: false,
+			}
+			session.AuthAttempts = append(session.AuthAttempts, a)
+		}
+		session.SourceIp = c.RemoteAddr().String()
+		session.ClientVersion = string(c.ClientVersion())
+	}
+}
+
+func (s sessionData) getPasswordAuthAttempts() int {
+	attemps := 0
+	for _, a := range s.AuthAttempts {
+		if a.Method == "password" {
+			attemps++
+		}
+	}
+	return attemps
 }

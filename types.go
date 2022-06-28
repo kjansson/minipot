@@ -26,6 +26,7 @@ type Input struct {
 }
 
 type authAttempt struct {
+	Method     string
 	Username   string
 	Password   string
 	Time       time.Time

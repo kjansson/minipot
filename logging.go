@@ -84,10 +84,14 @@ func createLog(session sessionData, outputDir string) error {
 
 	f.WriteString("Authentication attempts;\n")
 	for i, a := range session.AuthAttempts {
-		if a.Successful {
-			str = fmt.Sprintf("Accepted attempt %d at %s: username: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Username, a.Password)
+		if a.Method == "password" {
+			if a.Successful {
+				str = fmt.Sprintf("Accepted attempt %d at %s using password method: username: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Username, a.Password)
+			} else {
+				str = fmt.Sprintf("Rejected attempt %d at %s using password method: username: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Username, a.Password)
+			}
 		} else {
-			str = fmt.Sprintf("Rejected attempt %d at %s: username: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Username, a.Password)
+			str = fmt.Sprintf("Rejected attempt %d at %s: username using method %s: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Method, a.Username, a.Password)
 		}
 		f.WriteString(str)
 		if err != nil {
