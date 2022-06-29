@@ -45,7 +45,7 @@ type sessionData struct {
 	User                 string
 	Password             string
 	GuestEnvHostname     string
-	SourceIp             string
+	SourceIP             string
 	ClientVersion        string
 	TimeStart            time.Time
 	TimeEnd              time.Time
