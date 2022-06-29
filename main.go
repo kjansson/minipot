@@ -581,7 +581,9 @@ func authCallBackWrapper(session *sessionData, debug bool, logger log.Logger) fu
 		if debug {
 			logger.Printf("(DEBUG) Password auth attempt: Username %s, password %s\n", c.User(), string(pass))
 		}
-		session.SourceIP = c.RemoteAddr().String()
+
+		ip := strings.Split(c.RemoteAddr().String(), ":")
+		session.SourceIP = ip[0]
 		session.ClientVersion = string(c.ClientVersion())
 		a := authAttempt{
 			Username: c.User(),
@@ -620,7 +622,8 @@ func authLogWrapper(session *sessionData, debug bool, logger log.Logger) func(c 
 			}
 			session.AuthAttempts = append(session.AuthAttempts, a)
 		}
-		session.SourceIP = c.RemoteAddr().String()
+		ip := strings.Split(c.RemoteAddr().String(), ":")
+		session.SourceIP = ip[0]
 		session.ClientVersion = string(c.ClientVersion())
 	}
 }
