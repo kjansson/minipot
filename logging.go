@@ -98,6 +98,8 @@ func createLog(session sessionData, outputDir string) error {
 			return err
 		}
 	}
+
+	str = ""
 	f.WriteString("SSH requests;\n")
 	for _, r := range session.SSHRequests {
 		str = fmt.Sprintf("SSH request: Type '%s', payload '%s'\n", r.Type, r.Payload)
@@ -106,7 +108,7 @@ func createLog(session sessionData, outputDir string) error {
 	if err != nil {
 		return err
 	}
-
+	str = ""
 	f.WriteString("User input;\n")
 	for _, u := range session.UserInput {
 		str := fmt.Sprintf("%s: '%s'\n", u.Time.Format(time.UnixDate), u.Data)
@@ -115,7 +117,7 @@ func createLog(session sessionData, outputDir string) error {
 			return err
 		}
 	}
-
+	str = ""
 	f.WriteString("File modified during session;\n")
 	for _, file := range session.ModifiedFiles {
 		str := fmt.Sprintf("Path: %s\n", file)
