@@ -1,6 +1,6 @@
 # minipot
 
-Minipot is a simplistic SSH honeypot written in Go leveraging the Docker engine for client environments. It is multi-user, has session control, user interaction logging and packet capture capabilities. It is written with user friendliness in mind, and requires minimal effort to build and run. 
+Minipot is a simple to use SSH honeypot written in Go leveraging the Docker engine for client environments. It is multi-user, has session control, user interaction logging and packet capture capabilities. It is written with user friendliness in mind, and requires minimal effort to build and run. 
 
 # How does it work?
 Minipot is a "fake" SSH server which accepts login with any username and password after a given number of attempts.  
