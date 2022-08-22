@@ -2,12 +2,14 @@ package main
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,6 +29,10 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
+
+type exitStatusMsg struct {
+	Status uint32
+}
 
 func main() {
 	baseimage := flag.String("baseimage", "ubuntu:18.04", "Image to use as base for user environment build. Entrypoint will be overwritten.")
@@ -399,6 +405,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			}
 
 			go func(in <-chan *ssh.Request) {
+				//Requestloop:
 				for req := range in {
 
 					payloadStripControl := strings.Map(func(r rune) rune {
@@ -419,7 +426,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 						Payload: payloadStripControl,
 					}
 					session.SSHRequests = append(session.SSHRequests, request)
-
+					fmt.Println("NEW REQUEST: ", req.Type)
 					switch req.Type {
 					case "shell":
 						req.Reply(true, nil)
@@ -431,24 +438,260 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 							User:         session.User,
 							Cmd:          args,
 							AttachStdout: true,
-							AttachStderr: true,
+							AttachStderr: false,
+							AttachStdin:  true,
+							Detach:       false,
+							Tty:          false,
 						})
 						if err == nil {
+
+							fmt.Println("ARGS ", args)
 							cHjResp, err := cli.ContainerExecAttach(ctx, cResp.ID, types.ExecStartCheck{})
 							if err != nil {
 								logger.Println("Error while attaching to exec: ", err)
 							}
 							defer cHjResp.Close()
-							data, err := ioutil.ReadAll(cHjResp.Reader)
-							if err != nil {
-								logger.Println("Error reading from exec attach: ", err)
+
+							if args[0] == "scp" {
+								for _, a := range args {
+									if a == "-t" {
+										var payloadSize int = 256
+										for {
+
+											msg, err := ReadFromContainer(cHjResp.Reader)
+											if err != nil {
+												logger.Println("RC:", err)
+											}
+
+											err = WriteToSSHChannel(msg, channel)
+											if err != nil {
+												logger.Println("WS:", err)
+											}
+
+											fmt.Printf("Reading %d bytes from ssh channel\n", payloadSize)
+											msg, n, rserr := ReadFromSSHChannel(channel, payloadSize+1)
+											if rserr != nil || n == 0 {
+												logger.Println("RS:", rserr)
+												fmt.Println("Closing time")
+												fmt.Printf("Reading %d bytes from ssh channel\n", payloadSize)
+												channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMsg{0}))
+												channel.CloseWrite()
+												channel.Close()
+												break
+											}
+
+											if n != 0 {
+												if string(msg[0]) == "C" {
+													parts := strings.Split(string(msg), " ")
+													fmt.Printf("Setting payload size to %s\n", parts[1])
+													payloadSize, err = strconv.Atoi(parts[1])
+													if err != nil {
+														logger.Println("Atoi error, ", err)
+													}
+												}
+											}
+
+											err = WriteToContainer(msg, cHjResp.Conn)
+											if err != nil {
+												logger.Println("WC:", err)
+											}
+
+										}
+									}
+								}
+							} else {
+
+								data, err := ioutil.ReadAll(cHjResp.Reader)
+								if err != nil {
+									logger.Println("Error reading from exec attach: ", err)
+								}
+
+								// Seriously don't know why I have to slice up this slice, reading from exec attach returns garbage the first bytes
+								fmt.Printf("DATA: %s\n", data)
+								_, err = channel.Write(data[8:])
+								if err != nil {
+									logger.Println("Error while writing to SSH channel: ", err)
+								}
+
+								_, err = channel.Write([]byte{96})
+								if err != nil {
+									logger.Println("SSH Channel write error: ", err)
+								}
+
+								channel.CloseWrite()
 							}
-							// Seriously don't know why I have to slice up this slice, reading from exec attach returns garbage the first bytes
-							_, err = channel.Write(data[8:])
-							if err != nil {
-								logger.Println("Error while writing to SSH channel: ", err)
-							}
-							channel.Close()
+
+							// fmt.Println("ARGS ", args)
+							// cHjResp, err := cli.ContainerExecAttach(ctx, cResp.ID, types.ExecStartCheck{})
+							// if err != nil {
+							// 	logger.Println("Error while attaching to exec: ", err)
+							// }
+							// defer cHjResp.Close()
+							// data, err := ioutil.ReadAll(cHjResp.Reader)
+							// if err != nil {
+							// 	logger.Println("Error reading from exec attach: ", err)
+							// }
+
+							// if args[0] == "scp" {
+							// 	fmt.Println("scp")
+
+							// 	for _, a := range args {
+							// 		if a == "-t" {
+							// 			fmt.Println("to")
+							// 			//	time.Sleep(time.Second * 3)
+							// 			fmt.Println("Sending reply")
+							// 			req.Reply(true, nil)
+
+							// 			// go func() {
+							// 			// 	r := <-requests
+							// 			// 	fmt.Println("NEW REQUEST: ", r.Type)
+							// 			// }()
+							// 			_, err := channel.Write([]byte{0})
+							// 			if err != nil {
+							// 				logger.Println("SSH Channel write error: ", err)
+
+							// 			}
+							// 			//time.Sleep(time.Second * 1)
+							// 			var fileContents []byte
+							// 		Fileloop:
+							// 			for {
+
+							// 				fileContents = []byte{}
+
+							// 				// read command
+							// 				fmt.Println("Read channel")
+							// 				data := make([]byte, 1024)
+							// 				n, err := channel.Read(data) // Read from SSH channel
+							// 				if err != nil && err.Error() != "EOF" {
+							// 					logger.Println("SSH Channel read error: ", err)
+							// 					cancel()
+							// 					break
+							// 				}
+							// 				if n == 0 {
+							// 					logger.Println("EOF or something")
+							// 				}
+							// 				fmt.Printf("Command: %s\n", data)
+
+							// 				regex, err := regexp.Compile("([C,D,T,E])(\\S+)\\s(\\S+)\\s(\\S+)")
+							// 				if err != nil {
+							// 					logger.Fatal("Could not compile regex: ", err)
+							// 				}
+
+							// 				commandParts := regex.FindStringSubmatch(string(data))
+							// 				fmt.Println("COMMAND PArtS: ", commandParts)
+
+							// 				switch commandParts[1] {
+							// 				case "C":
+							// 					bufSize, err := strconv.Atoi(commandParts[3])
+							// 					//fileName := commandParts[4]
+							// 					if err != nil {
+							// 						logger.Println("Error while getting buffer size from command: ", err)
+							// 					}
+							// 					fmt.Printf("Allright, lets copy %d bytes\n", bufSize)
+							// 					_, err = channel.Write([]byte{0})
+							// 					if err != nil {
+							// 						logger.Println("SSH Channel write error: ", err)
+							// 					}
+
+							// 					for {
+
+							// 						// READ reQUeSt HERE?
+
+							// 						fmt.Println("Read channel")
+							// 						data := make([]byte, bufSize)
+							// 						n, err := channel.Read(data) // Read from SSH channel
+							// 						if err != nil && err.Error() != "EOF" {
+							// 							logger.Println("SSH Channel read error: ", err)
+							// 							cancel()
+							// 							break
+							// 						}
+							// 						if n == 0 {
+							// 							logger.Println("EOF or something")
+							// 							// _, err = channel.Write([]byte{96})
+							// 							// if err != nil {
+							// 							// 	logger.Println("SSH Channel write error: ", err)
+							// 							// }
+							// 							break
+							// 						} else {
+							// 							//fmt.Printf("INPUT FROM SSHs CHANNEL (%d): %s\n", n, data)
+							// 							fileContents = append(fileContents, data...)
+							// 							_, err = channel.Write([]byte{0})
+							// 							if err != nil {
+							// 								logger.Println("SSH Channel write error: ", err)
+							// 							}
+							// 						}
+							// 					}
+							// 					fmt.Println("File read done")
+							// 					fmt.Println("File contents:")
+							// 					fmt.Println("==========================")
+							// 					fmt.Printf("%s\n", fileContents)
+							// 					fmt.Println("==========================")
+							// 					// _, err = channel.Write([]byte{81})
+							// 					// if err != nil {
+							// 					// 	logger.Println("SSH Channel write error: ", err)
+							// 					// }
+							// 					//	time.Sleep(time.Second * 5)
+							// 					fmt.Println("Done")
+							// 					break Fileloop
+
+							// 				}
+
+							// 				//break
+							// 			}
+
+							// 		}
+							// 		if a == "-f" {
+							// 			fmt.Println("from")
+							// 			break
+							// 		}
+
+							// 	}
+
+							// 	fmt.Printf("Trying to send %s", data)
+							// 	/*
+
+							// 		if scp to host
+							// 		read data, make file, copy to path in host
+
+							// 		if scp from host
+							// 		read file from host, reply as data
+
+							// 	*/
+
+							// 	//channel.SendRequest("exec", false, nil)
+							// 	//channel.SendRequest("exec", false, data)
+							// 	//req.Reply(true, data)
+							// } else {
+							// 	// Seriously don't know why I have to slice up this slice, reading from exec attach returns garbage the first bytes
+							// 	fmt.Printf("DATA: %s\n", data)
+							// 	_, err = channel.Write(data[8:])
+							// 	if err != nil {
+							// 		logger.Println("Error while writing to SSH channel: ", err)
+							// 	}
+
+							// 	_, err = channel.Write([]byte{96})
+							// 	if err != nil {
+							// 		logger.Println("SSH Channel write error: ", err)
+							// 	}
+							// 	channel.CloseWrite()
+
+							//sshConn.Close()
+
+							//time.Sleep(time.Second * 15)
+							//	channel.Close()
+							// fmt.Println("Read channel")
+							// data := make([]byte, 24)
+							// n, err := channel.Read(data) // Read from SSH channel
+							// if err != nil && err.Error() != "EOF" {
+							// 	logger.Println("SSH Channel read error: ", err)
+							// 	cancel()
+							// 	break
+							// }
+							// fmt.Printf("Read %d bytes", n)
+							// fmt.Printf("Data: %s", data)
+
+							// }
+
 						} else {
 							logger.Println("Error while creating exec: ", err)
 							err = req.Reply(false, nil)
@@ -456,13 +699,15 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 								logger.Println("Error while sending request reply:", err)
 							}
 						}
+					default:
+						logger.Println("Unknown request: ", req.Type)
 					}
 
 				}
 			}(requests)
 
 			go func(w io.WriteCloser) { // Read from terminal and write to container input
-
+				<-startReadChan
 				defer channel.Close()
 				for {
 					data := make([]byte, 32)
@@ -472,6 +717,9 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 						cancel()
 						break
 					}
+
+					fmt.Println("INPUT FROM SSH CHANNEL: ", data[0])
+
 					inputChan <- data[0] // Send to input collector for later logging
 					if session.inputTimeout > 0 {
 						timeoutchan <- true // Send to input timeout handler
@@ -636,4 +884,53 @@ func (s sessionData) getPasswordAuthAttempts() int {
 		}
 	}
 	return attemps
+}
+
+func WriteToContainer(msg []byte, conn net.Conn) error {
+
+	_, err := conn.Write(msg)               // Write to container
+	if err != nil && err.Error() != "EOF" { // Error while writing to container
+		return err
+	}
+	return nil
+}
+
+func ReadFromContainer(reader *bufio.Reader) ([]byte, error) {
+	fmt.Println("Reading from container")
+	b := make([]byte, 1024)
+	n, err := reader.Read(b) // Read output from container
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("Read from container:", string(b[:n]))
+	fmt.Println("Read from container (raw):", b[:n])
+	fmt.Printf("Read %d bytes\n", n)
+	if b[0] == 1 {
+		fmt.Println("STDOUT")
+		fmt.Println("Payload is ", string(b[8:n]))
+		return []byte(b[8:n]), nil
+	} else {
+		fmt.Println("STDERR")
+		return nil, errors.New("was stderr")
+	}
+
+}
+
+func WriteToSSHChannel(msg []byte, channel ssh.Channel) error {
+	_, err := channel.Write(msg) // Write to SSH channel
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func ReadFromSSHChannel(channel ssh.Channel, size int) ([]byte, int, error) {
+	data := make([]byte, size)
+	n, err := channel.Read(data) // Read from SSH channel
+	if err != nil && err.Error() != "EOF" {
+		return nil, 0, err
+	}
+	fmt.Println("Read from SSH channel:", string(data[:n]))
+	fmt.Printf("Read %d bytes\n", n)
+	return data[:n], n, nil
 }

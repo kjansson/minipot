@@ -2,6 +2,7 @@ package main
 
 const DOCKER_FILE_BASE = `COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+RUN apt update && apt install -y ssh
 ENTRYPOINT /entrypoint.sh
 `
 
