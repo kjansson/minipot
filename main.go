@@ -378,6 +378,19 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			}()
 		}
 
+		// Save modified file paths
+		diffs, err := getContainerFileDiff(cli, ctx, resp.ID, *logger, debug)
+		if err != nil {
+			logger.Println("Error while getting diffs: ", err)
+		} else {
+			for _, path := range diffs {
+				if debug {
+					logger.Printf("Modified file: %s\n", path)
+				}
+				session.ModifiedFilesIgnore = append(session.ModifiedFilesIgnore, path)
+			}
+		}
+
 		containerAttachOpts := types.ContainerAttachOptions{
 			Stdin:  true,
 			Stdout: true,
@@ -615,18 +628,19 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 	}
 
-	cli.ContainerPause(ctx, resp.ID) // Pause container so we can do diff
-
 	// Save modified file paths
-	diffs, err := cli.ContainerDiff(ctx, resp.ID)
+	diffs, err := getContainerFileDiff(cli, ctx, resp.ID, *logger, debug)
 	if err != nil {
 		logger.Println("Error while getting diffs: ", err)
 	} else {
-		for _, d := range diffs {
-			if debug {
-				logger.Printf("Modified file: %s\n", d.Path)
-			}
-			session.ModifiedFiles = append(session.ModifiedFiles, d.Path)
+		session.ModifiedFiles = append(session.ModifiedFiles, diffs...)
+	}
+	cli.ContainerPause(ctx, resp.ID) // Pause container
+	session.ModifiedFiles = session.removeIgnoredModifiedFiles()
+
+	if debug {
+		for _, file := range session.ModifiedFiles {
+			logger.Printf("Modified file: %s\n", file)
 		}
 	}
 
@@ -724,6 +738,23 @@ func (s sessionData) getPasswordAuthAttempts() int {
 	return attemps
 }
 
+func (s sessionData) removeIgnoredModifiedFiles() []string {
+	keepFiles := []string{}
+
+	for index, file := range s.ModifiedFiles {
+		found := false
+		for _, ignore := range s.ModifiedFilesIgnore {
+			if file == ignore {
+				found = true
+			}
+		}
+		if !found {
+			keepFiles = append(keepFiles, s.ModifiedFiles[index])
+		}
+	}
+	return keepFiles
+}
+
 func WriteToContainer(msg []byte, conn net.Conn) error {
 
 	_, err := conn.Write(msg)               // Write to container
@@ -771,4 +802,32 @@ func ReadFromSSHChannel(channel ssh.Channel, size int) ([]byte, int, error) {
 	fmt.Println("Read from SSH channel:", string(data[:n]))
 	fmt.Printf("Read %d bytes\n", n)
 	return data[:n], n, nil
+}
+
+func getContainerFileDiff(cli *client.Client, ctx context.Context, containerID string, logger log.Logger, debug bool) ([]string, error) {
+	err := cli.ContainerPause(ctx, containerID) // Pause container so we can do diff
+	if err != nil {
+		return nil, fmt.Errorf("error while pausing container: %s", err)
+	}
+
+	modifiedFiles := []string{}
+	// Save modified file paths
+	diffs, err := cli.ContainerDiff(ctx, containerID)
+	if err != nil {
+		err = cli.ContainerUnpause(ctx, containerID) // Unpause container
+		if err != nil {
+			return nil, fmt.Errorf("error while unpausing container: %s", err)
+		}
+		return nil, fmt.Errorf("error while getting diffs: %s", err)
+	} else {
+		for _, d := range diffs {
+			modifiedFiles = append(modifiedFiles, d.Path)
+		}
+	}
+	err = cli.ContainerUnpause(ctx, containerID) // Unpause container
+	if err != nil {
+		return nil, fmt.Errorf("error while unpausing container: %s", err)
+	}
+
+	return modifiedFiles, nil
 }
