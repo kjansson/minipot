@@ -75,7 +75,7 @@ func main() {
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		logger.Println("Error whle creating Docker engine client: ", err)
+		logger.Println("Error while creating Docker engine client: ", err)
 		os.Exit(ERR_DOCKER_ENGINE_CLIENT_CREATE)
 	}
 
@@ -253,10 +253,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}()
 	}
 
-	if debug {
-		logger.Println("Creating container.")
-	}
-
 	_, chans, reqs, err := ssh.NewServerConn(nConn, config)
 	if err != nil {
 		if debug {
@@ -264,6 +260,10 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 		session.LoginError = err.Error()
 		cancel()
+	}
+
+	if debug {
+		logger.Println("Creating container.")
 	}
 
 	// Create a new Docker network for this session, we don't want containers sharing networks
@@ -771,16 +771,16 @@ func ReadFromContainer(reader *bufio.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("Read from container:", string(b[:n]))
-	fmt.Println("Read from container (raw):", b[:n])
-	fmt.Printf("Read %d bytes\n", n)
+	// fmt.Println("Read from container:", string(b[:n]))
+	// fmt.Println("Read from container (raw):", b[:n])
+	// fmt.Printf("Read %d bytes\n", n)
 	if b[0] == 1 {
-		fmt.Println("STDOUT")
-		fmt.Println("Payload is ", string(b[8:n]))
+		// fmt.Println("STDOUT")
+		// fmt.Println("Payload is ", string(b[8:n]))
 		return []byte(b[8:n]), nil
 	} else {
-		fmt.Println("STDERR")
-		return nil, errors.New("was stderr")
+		// fmt.Println("STDERR")
+		return nil, errors.New("Not from container stdout")
 	}
 
 }
@@ -799,8 +799,8 @@ func ReadFromSSHChannel(channel ssh.Channel, size int) ([]byte, int, error) {
 	if err != nil && err.Error() != "EOF" {
 		return nil, 0, err
 	}
-	fmt.Println("Read from SSH channel:", string(data[:n]))
-	fmt.Printf("Read %d bytes\n", n)
+	// fmt.Println("Read from SSH channel:", string(data[:n]))
+	// fmt.Printf("Read %d bytes\n", n)
 	return data[:n], n, nil
 }
 
