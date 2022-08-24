@@ -403,6 +403,48 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 											}
 
 										}
+										cHjResp.Conn.Close()
+									} else if a == "-f" {
+										req.Reply(true, nil)
+										payloadSize := 1024
+										for {
+
+											msg, n, rserr := ReadFromSSHChannel(channel, payloadSize)
+											if rserr != nil || n == 0 {
+												channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMessage{0}))
+												channel.CloseWrite()
+												channel.Close()
+												break
+											}
+
+											err = WriteToContainer(msg, cHjResp.Conn)
+											if err != nil {
+												logger.Println("Error while writing to container:", err)
+											}
+
+											msg, err := ReadFromContainer(cHjResp.Reader)
+											if err != nil {
+												logger.Println("Error while reading from container:", err)
+											} else if len(msg) > 0 {
+												fmt.Println("MSG:", string(msg))
+
+												if string(msg[0]) == "C" { // Copy file, we need to get payload size
+													fmt.Println("SET PAYLOAD SIZE")
+													parts := strings.Split(string(msg), " ")
+													payloadSize, err = strconv.Atoi(parts[1])
+													if err != nil {
+														logger.Println("Atoi error, ", err)
+													}
+													fmt.Println("SIZE:", payloadSize)
+												}
+											}
+
+											err = WriteToSSHChannel(msg, channel)
+											if err != nil {
+												logger.Println("Error while writing to SSH channel:", err)
+											}
+										}
+										cHjResp.Conn.Close()
 									}
 								}
 							} else {
