@@ -1,12 +1,14 @@
 package main
 
-import "time"
+import (
+	"time"
+)
 
 const APP_NAME = "minipot"
 const PCAP_IMAGE = "minipot-pcap:latest"
 
 const ERR_FILE_OPEN = 1
-const ERR_PRIVATE_KEY_LOAD = 2
+const ERR_PRIVATE_KEY_GETORCREATE = 2
 const ERR_PRIVATE_KEY_PARSE = 3
 const ERR_SSH_SERVE = 4
 const ERR_SSH_ACCEPT = 5
@@ -19,6 +21,10 @@ const ERR_DOCKER_IMAGE_BUILD = 11
 const ERR_DOCKER_ENGINE_CLIENT_CREATE = 12
 const ERR_TAR_WRITE_HEADER = 13
 const ERR_TAR_WRITE_BODY = 14
+
+type exitStatusMessage struct {
+	Status uint32
+}
 
 type Input struct {
 	Data string
@@ -38,30 +44,11 @@ type sshRequest struct {
 	Payload string
 }
 
-// Session information, exported values are used in JSON log
-type sessionData struct {
-	MinipotSessionID     string
-	SSHSessionID         int
-	User                 string
-	Password             string
-	GuestEnvHostname     string
-	SourceIP             string
-	ClientVersion        string
-	TimeStart            time.Time
-	TimeEnd              time.Time
-	AuthAttempts         []authAttempt
-	SSHRequests          []sshRequest
-	UserInput            []Input
-	ModifiedFiles        []string
-	ModifiedFilesIgnore  []string
-	LoginError           string
-	NetworkMode          string
-	Image                string
-	sessionTimeout       int
-	inputTimeout         int
-	TimedOutBySession    bool
-	TimedOutByNoInput    bool
-	environmentVariables []string
-	PcapEnabled          bool
-	permitAttempt        int
-}
+// type Timestamp {
+// 	TimeStart time.time
+// 	TimeEnd   time.time
+// }
+
+// type sessions struct {
+// 	liveSessions map[string]sessionData
+// }

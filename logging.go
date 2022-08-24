@@ -56,17 +56,17 @@ func createLog(session sessionData, outputDir string) error {
 		return err
 	}
 
-	str = fmt.Sprintf("Start time: %s (%d)\n", session.TimeStart.Format(time.UnixDate), session.TimeStart.Unix())
-	f.WriteString(str)
-	if err != nil {
-		return err
-	}
+	// str = fmt.Sprintf("Start time: %s (%d)\n", session.TimeStart.Format(time.UnixDate), session.TimeStart.Unix())
+	// f.WriteString(str)
+	// if err != nil {
+	// 	return err
+	// }
 
-	str = fmt.Sprintf("End time: %s (%d)\n", session.TimeEnd.Format(time.UnixDate), session.TimeEnd.Unix())
-	f.WriteString(str)
-	if err != nil {
-		return err
-	}
+	// str = fmt.Sprintf("End time: %s (%d)\n", session.TimeEnd.Format(time.UnixDate), session.TimeEnd.Unix())
+	// f.WriteString(str)
+	// if err != nil {
+	// 	return err
+	// }
 
 	str = "Session end reason: "
 	if session.TimedOutByNoInput {
