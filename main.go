@@ -36,7 +36,7 @@ func main() {
 	pcapEnabled := flag.Bool("pcap", false, "Enable packet capture. Could potentially use up a lot of disk space.")
 	privateKeyFile := flag.String("privatekey", "", "Path to private key for SSH server if providing your own is preferable. If left empty, one will be created for each session.")
 	sshBindAddress := flag.String("bindaddress", "0.0.0.0:22", "SSH bind address and port in format 'ip:port'. Default is '0.0.0.0:22'")
-	permitAttempt := flag.Int("permitattempt", 3, "Attempt number to accept connection on. Default is 3.")
+	permitAttempt := flag.Int("permitattempt", 1, "Attempt number to accept connection on. Default is to accept on first.")
 
 	flag.Parse()
 
