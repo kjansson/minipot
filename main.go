@@ -368,12 +368,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 												logger.Println("Error while reading from container:", err)
 											}
 
-											err = WriteToSSHChannel(msg, channel)
+											err = writeToSSHChannel(msg, channel)
 											if err != nil {
 												logger.Println("Error while writing to SSH channel:", err)
 											}
 
-											msg, n, rserr := ReadFromSSHChannel(channel, payloadSize+1)
+											msg, n, rserr := readFromSSHChannel(channel, payloadSize+1)
 											if rserr != nil || n == 0 {
 												channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMessage{0}))
 												channel.CloseWrite()
@@ -404,7 +404,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 										payloadSet := false
 										for {
 
-											msg, n, rserr := ReadFromSSHChannel(channel, payloadSize)
+											msg, n, rserr := readFromSSHChannel(channel, payloadSize)
 											if rserr != nil || n == 0 {
 												logger.Println("Error while reading from SSH channel:", rserr)
 											}
@@ -432,7 +432,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 												}
 											}
 
-											err = WriteToSSHChannel(msg, channel)
+											err = writeToSSHChannel(msg, channel)
 											if err != nil {
 												logger.Println("Error while writing to SSH channel:", err)
 											}
@@ -482,7 +482,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 
 				defer channel.Close()
 				for {
-					data, n, err := ReadFromSSHChannel(channel, 32) // Read from SSH channel
+					data, n, err := readFromSSHChannel(channel, 32) // Read from SSH channel
 					if err != nil {
 						logger.Println("SSH Channel read error: ", err)
 						session.sshSessionCancel()

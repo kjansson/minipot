@@ -105,7 +105,7 @@ func authLogWrapper(session *sessionData, debug bool, logger log.Logger) func(c 
 	}
 }
 
-func WriteToSSHChannel(msg []byte, channel ssh.Channel) error {
+func writeToSSHChannel(msg []byte, channel ssh.Channel) error {
 	_, err := channel.Write(msg) // Write to SSH channel
 	if err != nil {
 		return err
@@ -113,7 +113,7 @@ func WriteToSSHChannel(msg []byte, channel ssh.Channel) error {
 	return nil
 }
 
-func ReadFromSSHChannel(channel ssh.Channel, size int) ([]byte, int, error) {
+func readFromSSHChannel(channel ssh.Channel, size int) ([]byte, int, error) {
 	data := make([]byte, size)
 	n, err := channel.Read(data) // Read from SSH channel
 	if err != nil && err.Error() != "EOF" {
