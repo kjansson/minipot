@@ -188,7 +188,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 		// Create a new Docker network for this session, we don't want containers sharing networks
 		session.networkID = fmt.Sprintf("%s-%d", session.MinipotSessionID, session.SSHSessionID)
-		_, err = cli.NetworkCreate(session.minipotSessionContext, session.networkID, types.NetworkCreate{
+		_, err = cli.NetworkCreate(context.Background(), session.networkID, types.NetworkCreate{
 			Attachable: true,
 		})
 		if err != nil {
@@ -261,12 +261,13 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			session.pcapContainerID = pcap.ID
 		}
 
-	} else {
-		err = cli.ContainerUnpause(context.Background(), session.containerID)
-		if err != nil {
-			logger.Println("Error while unpausing container: ", err)
-		}
 	}
+	// else {
+	// 	err = cli.ContainerUnpause(context.Background(), session.containerID)
+	// 	if err != nil {
+	// 		logger.Println("Error while unpausing container: ", err)
+	// 	}
+	// }
 	// Else do as normal below
 
 	inputChan := make(chan byte)
@@ -312,7 +313,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		// }
 
 		// Save modified file paths
-		diffs, err := getContainerFileDiff(cli, context.Background(), session.containerID, *logger, debug)
+		diffs, err := getContainerFileDiff(cli, session.containerID, *logger, debug)
 		if err != nil {
 			logger.Println("Error while getting diffs: ", err)
 		} else {
@@ -408,11 +409,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 									if a == "-t" {
 										var payloadSize int = 256
 
-										err = WriteToContainer([]byte{'\n'}, cHjResp.Conn)
-										if err != nil {
-											logger.Println("Error while writing to container:", err)
-										}
-
 										for {
 
 											msg, err := ReadFromContainer(cHjResp.Reader)
@@ -489,6 +485,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 
 			go func(w io.WriteCloser) { // Read from terminal and write to container input
 				<-startReadChan
+
+				err = WriteToContainer([]byte{'\n'}, hjresp.Conn)
+				if err != nil {
+					logger.Println("Error while writing to container:", err)
+				}
+
 				defer channel.Close()
 				for {
 					data, n, err := ReadFromSSHChannel(channel, 32) // Read from SSH channel
@@ -541,7 +543,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	session.Timestamps = timestamps
 
 	// Save modified file paths
-	diffs, err := getContainerFileDiff(cli, context.Background(), session.containerID, *logger, debug)
+	diffs, err := getContainerFileDiff(cli, session.containerID, *logger, debug)
 	if err != nil {
 		logger.Println("Error while getting diffs: ", err)
 	} else {

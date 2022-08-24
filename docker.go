@@ -119,31 +119,22 @@ func buildPotContainer(ctx context.Context, cli *client.Client, logger log.Logge
 	return nil
 }
 
-func getContainerFileDiff(cli *client.Client, ctx context.Context, containerID string, logger log.Logger, debug bool) ([]string, error) {
-	err := cli.ContainerPause(ctx, containerID) // Pause container so we can do diff
-	if err != nil {
-		//return nil, fmt.Errorf("error while pausing container: %s", err)
-		logger.Println("error while pausing container: ", err)
-	}
+func getContainerFileDiff(cli *client.Client, containerID string, logger log.Logger, debug bool) ([]string, error) {
+	cli.ContainerPause(context.Background(), containerID) // Pause container so we can do diff
 
 	modifiedFiles := []string{}
 	// Save modified file paths
-	diffs, err := cli.ContainerDiff(ctx, containerID)
+	diffs, err := cli.ContainerDiff(context.Background(), containerID)
 	if err != nil {
-		err = cli.ContainerUnpause(ctx, containerID) // Unpause container
-		if err != nil {
-			return nil, fmt.Errorf("error while unpausing container: %s", err)
-		}
+		cli.ContainerUnpause(context.Background(), containerID) // Unpause container
+
 		return nil, fmt.Errorf("error while getting diffs: %s", err)
 	} else {
 		for _, d := range diffs {
 			modifiedFiles = append(modifiedFiles, d.Path)
 		}
 	}
-	err = cli.ContainerUnpause(ctx, containerID) // Unpause container
-	if err != nil {
-		return nil, fmt.Errorf("error while unpausing container: %s", err)
-	}
+	cli.ContainerUnpause(context.Background(), containerID) // Unpause container
 
 	return modifiedFiles, nil
 }
