@@ -82,19 +82,19 @@ func buildPCAPContainer(ctx context.Context, cli *client.Client, logger log.Logg
 	return nil
 }
 
-func buildPotContainer(ctx context.Context, cli *client.Client, logger log.Logger, baseimage string) error {
+func buildPotContainer(ctx context.Context, cli *client.Client, logger log.Logger) error {
 	buf := new(bytes.Buffer)
 	tarWriter := tar.NewWriter(buf)
 
-	logger.Println("Starting image build from ", baseimage)
+	logger.Println("Starting image build from ", BASE_IMAGE)
 
-	err := writeTar(tarWriter, "Dockerfile", []byte("FROM "+baseimage+"\n"+DOCKER_FILE_BASE))
+	err := writeTar(tarWriter, "Dockerfile", []byte("FROM "+BASE_IMAGE+"\n"+DOCKER_FILE_BASE))
 	if err != nil {
-		return fmt.Errorf("Error writing Dockerfile to tarball: %s", err)
+		return fmt.Errorf("error writing Dockerfile to tarball: %s", err)
 	}
 	err = writeTar(tarWriter, "entrypoint.sh", []byte(ENTRYPOINT))
 	if err != nil {
-		return fmt.Errorf("Error writing entrypoint.sh to tarball: %s", err)
+		return fmt.Errorf("error writing entrypoint.sh to tarball: %s", err)
 	}
 
 	// Build image
@@ -107,13 +107,13 @@ func buildPotContainer(ctx context.Context, cli *client.Client, logger log.Logge
 			Remove:     true,
 			Tags:       []string{DOCKER_CLIENT_ENV_NAME}})
 	if err != nil {
-		return fmt.Errorf("Error building image: %s", err)
+		return fmt.Errorf("error building image: %s", err)
 	}
 	defer imageBuildResponse.Body.Close()
 
 	_, err = io.Copy(ioutil.Discard, imageBuildResponse.Body)
 	if err != nil {
-		return fmt.Errorf("Error reading image build output: %s", err)
+		return fmt.Errorf("error reading image build output: %s", err)
 	}
 
 	return nil

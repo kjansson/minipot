@@ -32,7 +32,6 @@ type sessionData struct {
 	ModifiedFilesIgnore  []string
 	LoginError           string
 	NetworkMode          string
-	Image                string
 	containerID          string
 	pcapContainerID      string
 	networkID            string

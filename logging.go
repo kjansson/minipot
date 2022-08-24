@@ -48,7 +48,6 @@ func createLog(session sessionData, outputDir string) error {
 	str := fmt.Sprintf("Log for session %d from address '%s'. Image '%s'. Network mode '%s'. Client version: '%s'\n",
 		session.SSHSessionID,
 		session.SourceIP,
-		session.Image,
 		session.NetworkMode,
 		session.ClientVersion)
 	f.WriteString(str)

@@ -6,6 +6,7 @@ import (
 
 const APP_NAME = "minipot"
 const PCAP_IMAGE = "minipot-pcap:latest"
+const BASE_IMAGE = "ubuntu:18.04"
 
 const ERR_FILE_OPEN = 1
 const ERR_PRIVATE_KEY_GETORCREATE = 2

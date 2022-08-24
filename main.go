@@ -25,7 +25,6 @@ import (
 )
 
 func main() {
-	baseimage := flag.String("baseimage", "ubuntu:18.04", "Image to use as base for user environment build. Entrypoint will be overwritten.")
 	debug := flag.Bool("debug", false, "Enable debug output.")
 	outputDir := flag.String("outputdir", "./", "Directory to output session log files to.")
 	globalSessionId := flag.String("id", "", "Global session id, for log file names etc. Defaults to epoch.")
@@ -78,7 +77,7 @@ func main() {
 		}
 	}
 
-	err = buildPotContainer(ctx, cli, *logger, *baseimage)
+	err = buildPotContainer(ctx, cli, *logger)
 	if err != nil {
 		logger.Println("Error while building pot container: ", err)
 		os.Exit(ERR_DOCKER_IMAGE_BUILD)
@@ -117,7 +116,6 @@ func main() {
 			MinipotSessionID: *globalSessionId,
 			GuestEnvHostname: *hostname,
 			NetworkMode:      *networkmode,
-			Image:            *baseimage,
 			sessionTimeout:   *sessionTimeout,
 			PcapEnabled:      usePcap,
 			permitAttempt:    *permitAttempt,
