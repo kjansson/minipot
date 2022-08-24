@@ -32,7 +32,6 @@ func main() {
 	hostname := flag.String("hostname", "", "Hostname to use in container. Default is container default.")
 	networkmode := flag.String("networkmode", "none", "Docker network mode to use for containers. Valid options are 'none', 'bridge' or 'host'. Defaults to 'none'. Use with caution!")
 	sessionTimeout := flag.Int("sessiontimeout", 1800, "Timeout in seconds before closing a session. Default to 1800.")
-	inputTimeout := flag.Int("inputtimeout", 300, "Timeout in seconds before closing a session when no input is detected. Default to 300.")
 	pcapEnabled := flag.Bool("pcap", false, "Enable packet capture. Could potentially use up a lot of disk space.")
 	privateKeyFile := flag.String("privatekey", "", "Path to private key for SSH server if providing your own is preferable. If left empty, one will be created for each session.")
 	sshBindAddress := flag.String("bindaddress", "0.0.0.0:22", "SSH bind address and port in format 'ip:port'. Default is '0.0.0.0:22'")
@@ -123,7 +122,6 @@ func main() {
 			NetworkMode:      *networkmode,
 			Image:            *baseimage,
 			sessionTimeout:   *sessionTimeout,
-			inputTimeout:     *inputTimeout,
 			PcapEnabled:      usePcap,
 			permitAttempt:    *permitAttempt,
 		}
@@ -149,17 +147,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 
 	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %d): ", APP_NAME, session.SSHSessionID), log.Ldate|log.Ltime|log.Lshortfile)
 
-	// if session.sessionTimeout > 0 { // Session timeout, cancel no matter what when this happens
-	// 	if debug {
-	// 		logger.Println("Session timeout is set to ", session.sessionTimeout, "seconds.")
-	// 	}
-	// 	go func() {
-	// 		time.Sleep(time.Duration(session.sessionTimeout) * time.Second)
-	// 		session.TimedOutBySession = true
-	// 		session.sessionCancel()
-	// 	}()
-	// }
-
 	session.minipotSessionContext, session.minipotSessionCancel = context.WithTimeout(context.Background(), time.Duration(session.sessionTimeout)*time.Second)
 	newCtx := context.Background()
 	session.sshSessionContext, session.sshSessionCancel = context.WithCancel(newCtx)
@@ -176,12 +163,9 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 
 	session = sessions[session.SourceIP]
 	id := session.SSHSessionID
-	// NEW
 
-	// TODO
 	// If container ID is set in session, there should be a container running with that ID.
 	// Resume container and attach to it.
-	fmt.Println("CONTAINER ID AT START: ", session.containerID)
 	if session.containerID == "" {
 		if debug {
 			logger.Println("Creating container.")
@@ -215,7 +199,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 
 		session.containerID = resp.ID
-		fmt.Println("setting container id to ", session.containerID)
 
 		if session.NetworkMode != "none" {
 			err = cli.NetworkConnect(context.Background(), session.networkID, session.containerID, &network.EndpointSettings{})
@@ -262,13 +245,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 
 	}
-	// else {
-	// 	err = cli.ContainerUnpause(context.Background(), session.containerID)
-	// 	if err != nil {
-	// 		logger.Println("Error while unpausing container: ", err)
-	// 	}
-	// }
-	// Else do as normal below
 
 	inputChan := make(chan byte)
 
@@ -296,21 +272,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}()
 
 	go func() {
-
-		// // Handle input timeout
-		// timeoutchan := make(chan bool)
-		// if session.inputTimeout > 0 {
-		// 	go func() {
-		// 		for {
-		// 			select {
-		// 			case <-timeoutchan:
-		// 			case <-time.After(time.Duration(session.inputTimeout) * time.Second): // Make this configurable
-		// 				session.TimedOutByNoInput = true
-		// 				session.sessionCancel()
-		// 			}
-		// 		}
-		// 	}()
-		// }
 
 		// Save modified file paths
 		diffs, err := getContainerFileDiff(cli, session.containerID, *logger, debug)
@@ -377,7 +338,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 						Payload: payloadStripControl,
 					}
 					session.SSHRequests = append(session.SSHRequests, request)
-					fmt.Println("NEW REQUEST: ", req.Type)
 					switch req.Type {
 					case "shell":
 						req.Reply(true, nil)
@@ -397,12 +357,10 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 						})
 						if err == nil {
 
-							//fmt.Println("ARGS ", args)
 							cHjResp, err := cli.ContainerExecAttach(context.Background(), cResp.ID, types.ExecStartCheck{})
 							if err != nil {
 								logger.Println("Error while attaching to exec: ", err)
 							}
-							//defer cHjResp.Close()
 
 							if args[0] == "scp" {
 								for _, a := range args {
@@ -421,12 +379,8 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 												logger.Println("Error while writing to SSH channel:", err)
 											}
 
-											// fmt.Printf("Reading %d bytes from ssh channel\n", payloadSize)
 											msg, n, rserr := ReadFromSSHChannel(channel, payloadSize+1)
 											if rserr != nil || n == 0 {
-												//logger.Println("Error w:", rserr)
-												// fmt.Println("Closing time")
-												// fmt.Printf("Reading %d bytes from ssh channel\n", payloadSize)
 												channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMessage{0}))
 												channel.CloseWrite()
 												channel.Close()
@@ -436,7 +390,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 											if n != 0 {
 												if string(msg[0]) == "C" { // Copy file, we need to get payload size
 													parts := strings.Split(string(msg), " ")
-													//fmt.Printf("Setting payload size to %s\n", parts[1])
 													payloadSize, err = strconv.Atoi(parts[1])
 													if err != nil {
 														logger.Println("Atoi error, ", err)
@@ -518,7 +471,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 
 			go func() { // Read output from container and write back to user
 				<-startWriteChan // Wait for other goroutine to start
-				fmt.Println("Starting read from container")
 				for {
 					data, err := hjresp.Reader.ReadByte() // Read output from container
 					if err != nil {
@@ -532,11 +484,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}()
 	<-session.sshSessionContext.Done() // Something cancelled the SSH session
 
-	//_, notTimedOut := session.minipotSessionContext.Deadline()
-
-	// TODO find out if timeout actually has ended here
-	// In that case, remove from sessions map
-	// Otherwise, just log and exit when timout occurs
 	logger.Printf("SSH session ended\n")
 	timestamps := session.Timestamps
 	timestamps = append(timestamps, time.Now())
