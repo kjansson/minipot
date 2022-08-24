@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"time"
-
-	"github.com/docker/docker/client"
 )
 
 // Session information, exported values are used in JSON log
@@ -13,7 +11,6 @@ type sessionData struct {
 	minipotSessionCancel  context.CancelFunc
 	sshSessionContext     context.Context
 	sshSessionCancel      context.CancelFunc
-	dockerClient          *client.Client
 	MinipotSessionID      string
 	SSHSessionID          int
 	User                  string
