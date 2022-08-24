@@ -12,33 +12,31 @@ type sessionData struct {
 	sshSessionContext     context.Context
 	sshSessionCancel      context.CancelFunc
 	MinipotSessionID      string
+	ClientSessionId       int
 	SSHSessionID          int
 	User                  string
 	Password              string
 	loginSuccessful       bool
-	GuestEnvHostname      string // TODO ARRAY
+	GuestEnvHostname      string
 	SourceIP              string
 	ClientVersion         string
 	Timestamps            []time.Time
-	// TimeStart            time.Time
-	// TimeEnd              time.Time
-	AuthAttempts         []authAttempt
-	SSHRequests          []sshRequest
-	UserInput            []Input
-	ModifiedFiles        []string
-	ModifiedFilesIgnore  []string
-	LoginError           string
-	NetworkMode          string
-	containerID          string
-	pcapContainerID      string
-	networkID            string
-	sessionTimeout       int
-	inputTimeout         int
-	TimedOutBySession    bool
-	TimedOutByNoInput    bool
-	environmentVariables []string
-	PcapEnabled          bool
-	permitAttempt        int
+	AuthAttempts          []authAttempt
+	SSHRequests           []sshRequest
+	UserInput             []Input
+	ModifiedFiles         []string
+	ModifiedFilesIgnore   []string
+	LoginError            string
+	NetworkMode           string
+	containerID           string
+	pcapContainerID       string
+	networkID             string
+	sessionTimeout        int
+	TimedOutBySession     bool
+	TimedOutByNoInput     bool
+	environmentVariables  []string
+	PcapEnabled           bool
+	permitAttempt         int
 }
 
 func (s sessionData) getPasswordAuthAttempts() int {

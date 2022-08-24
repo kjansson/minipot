@@ -29,7 +29,7 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 				logger.Println("New session")
 			}
 			sessions[session.SourceIP] = session
-
+			sessions[session.SourceIP].ClientSessionId++
 		} else {
 			session = sessions[session.SourceIP]
 			session.SSHSessionID++

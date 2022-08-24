@@ -19,7 +19,7 @@ func createJsonLog(session sessionData, outputDir string) error {
 		return err
 	}
 
-	filename := fmt.Sprintf("%s-%d.json", session.MinipotSessionID, session.SSHSessionID)
+	filename := fmt.Sprintf("%s-%d-%d.json", session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID)
 	f, err := os.Create(outputDir + filename)
 	if err != nil {
 		return err
@@ -39,13 +39,13 @@ func createLog(session sessionData, outputDir string) error {
 		outputDir = fmt.Sprintf("%s/", outputDir)
 	}
 
-	filename := fmt.Sprintf("%s-%d", session.MinipotSessionID, session.SSHSessionID)
+	filename := fmt.Sprintf("%s-%d-%d.json", session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID)
 	f, err := os.Create(outputDir + filename)
 	if err != nil {
 		return err
 	}
 
-	str := fmt.Sprintf("Log for session %d from address '%s'. Image '%s'. Network mode '%s'. Client version: '%s'\n",
+	str := fmt.Sprintf("Log for session %d from address '%s'. Network mode '%s'. Client version: '%s'\n",
 		session.SSHSessionID,
 		session.SourceIP,
 		session.NetworkMode,
