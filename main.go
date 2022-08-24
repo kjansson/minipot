@@ -407,14 +407,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 									} else if a == "-f" {
 										req.Reply(true, nil)
 										payloadSize := 1024
+										payloadSet := false
 										for {
 
 											msg, n, rserr := ReadFromSSHChannel(channel, payloadSize)
 											if rserr != nil || n == 0 {
-												channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMessage{0}))
-												channel.CloseWrite()
-												channel.Close()
-												break
+												logger.Println("Error while reading from SSH channel:", rserr)
 											}
 
 											err = WriteToContainer(msg, cHjResp.Conn)
@@ -425,10 +423,14 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 											msg, err := ReadFromContainer(cHjResp.Reader)
 											if err != nil {
 												logger.Println("Error while reading from container:", err)
+												channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMessage{0}))
+												channel.CloseWrite()
+												channel.Close()
+												break
 											} else if len(msg) > 0 {
 												fmt.Println("MSG:", string(msg))
 
-												if string(msg[0]) == "C" { // Copy file, we need to get payload size
+												if !payloadSet && string(msg[0]) == "C" { // Copy file, we need to get payload size
 													fmt.Println("SET PAYLOAD SIZE")
 													parts := strings.Split(string(msg), " ")
 													payloadSize, err = strconv.Atoi(parts[1])
@@ -436,6 +438,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 														logger.Println("Atoi error, ", err)
 													}
 													fmt.Println("SIZE:", payloadSize)
+													payloadSet = true
 												}
 											}
 
@@ -444,6 +447,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 												logger.Println("Error while writing to SSH channel:", err)
 											}
 										}
+										logger.Println("Closing connection")
 										cHjResp.Conn.Close()
 									}
 								}

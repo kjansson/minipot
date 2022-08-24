@@ -164,7 +164,7 @@ func ReadFromContainer(reader *bufio.Reader) ([]byte, error) {
 	if b[0] == 1 {
 		// fmt.Println("STDOUT")
 		// fmt.Println("Payload is ", string(b[8:n]))
-		return []byte(b[8 : n+8]), nil
+		return []byte(b[8:n]), nil
 	} else {
 		// fmt.Println("STDERR")
 		return nil, errors.New("Not from container stdout")
