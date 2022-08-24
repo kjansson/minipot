@@ -195,7 +195,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			logger.Println("WARNING: Error while creating network. Might exist already, trying to create container anyway.")
 		}
 
-		resp, err := cli.ContainerCreate(session.minipotSessionContext, &container.Config{
+		resp, err := cli.ContainerCreate(context.Background(), &container.Config{
 			Image:        DOCKER_CLIENT_ENV_NAME,
 			AttachStderr: true,
 			AttachStdin:  true,
@@ -218,13 +218,13 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		fmt.Println("setting container id to ", session.containerID)
 
 		if session.NetworkMode != "none" {
-			err = cli.NetworkConnect(session.minipotSessionContext, session.networkID, session.containerID, &network.EndpointSettings{})
+			err = cli.NetworkConnect(context.Background(), session.networkID, session.containerID, &network.EndpointSettings{})
 			if err != nil {
 				logger.Println("Error connecting guest container to network: ", err)
 				os.Exit(ERR_CONTAINER_NETWORK_CONNECT)
 			}
 		}
-		err = cli.ContainerStart(session.minipotSessionContext, session.containerID, types.ContainerStartOptions{})
+		err = cli.ContainerStart(context.Background(), session.containerID, types.ContainerStartOptions{})
 		if err != nil {
 			logger.Println("Error while starting container: ", err)
 			os.Exit(ERR_CONTAINER_START)
@@ -232,14 +232,14 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		var pcap = container.ContainerCreateCreatedBody{}
 
 		if session.PcapEnabled {
-			inspection, err := cli.ContainerInspect(session.minipotSessionContext, session.containerID) // Inspect container so we can get the name
+			inspection, err := cli.ContainerInspect(context.Background(), session.containerID) // Inspect container so we can get the name
 			if err != nil {
 				logger.Println("Could not get container inspect:", err)
 			}
 
 			name := inspection.Name
 
-			pcap, err = cli.ContainerCreate(session.minipotSessionContext, &container.Config{
+			pcap, err = cli.ContainerCreate(context.Background(), &container.Config{
 				Image: PCAP_IMAGE,
 			},
 				&container.HostConfig{
@@ -253,7 +253,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 				os.Exit(ERR_CONTAINER_CREATE)
 			}
 
-			err = cli.ContainerStart(session.minipotSessionContext, pcap.ID, types.ContainerStartOptions{})
+			err = cli.ContainerStart(context.Background(), pcap.ID, types.ContainerStartOptions{})
 			if err != nil {
 				logger.Println("Error while starting container: ", err)
 				os.Exit(ERR_CONTAINER_START)
@@ -262,7 +262,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 
 	} else {
-		err = cli.ContainerUnpause(session.minipotSessionContext, session.containerID)
+		err = cli.ContainerUnpause(context.Background(), session.containerID)
 		if err != nil {
 			logger.Println("Error while unpausing container: ", err)
 		}
@@ -312,7 +312,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		// }
 
 		// Save modified file paths
-		diffs, err := getContainerFileDiff(cli, session.minipotSessionContext, session.containerID, *logger, debug)
+		diffs, err := getContainerFileDiff(cli, context.Background(), session.containerID, *logger, debug)
 		if err != nil {
 			logger.Println("Error while getting diffs: ", err)
 		} else {
@@ -333,7 +333,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			Stderr: true,
 			Stream: true,
 		}
-		hjresp, err := cli.ContainerAttach(session.minipotSessionContext, session.containerID, containerAttachOpts)
+		hjresp, err := cli.ContainerAttach(context.Background(), session.containerID, containerAttachOpts)
 		if err != nil {
 			logger.Println("Error while attaching to container:", err)
 			os.Exit(ERR_CONTAINER_ATTACH)
@@ -385,7 +385,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 					case "exec":
 						args := strings.Split(payloadStripControl, " ")
 
-						cResp, err := cli.ContainerExecCreate(session.minipotSessionContext, session.containerID, types.ExecConfig{
+						cResp, err := cli.ContainerExecCreate(context.Background(), session.containerID, types.ExecConfig{
 							User:         session.User,
 							Cmd:          args,
 							AttachStdout: true,
@@ -397,7 +397,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 						if err == nil {
 
 							//fmt.Println("ARGS ", args)
-							cHjResp, err := cli.ContainerExecAttach(session.minipotSessionContext, cResp.ID, types.ExecStartCheck{})
+							cHjResp, err := cli.ContainerExecAttach(context.Background(), cResp.ID, types.ExecStartCheck{})
 							if err != nil {
 								logger.Println("Error while attaching to exec: ", err)
 							}
@@ -541,7 +541,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	session.Timestamps = timestamps
 
 	// Save modified file paths
-	diffs, err := getContainerFileDiff(cli, session.minipotSessionContext, session.containerID, *logger, debug)
+	diffs, err := getContainerFileDiff(cli, context.Background(), session.containerID, *logger, debug)
 	if err != nil {
 		logger.Println("Error while getting diffs: ", err)
 	} else {
@@ -585,7 +585,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		// TODO all this needs to be done in separate files for each session
 		if session.PcapEnabled {
 			logger.Printf("Getting PCAP data\n")
-			ior, _, err := cli.CopyFromContainer(session.minipotSessionContext, session.pcapContainerID, "/session.pcap") // Copy PCAP file, comes as TAR archive
+			ior, _, err := cli.CopyFromContainer(context.Background(), session.pcapContainerID, "/session.pcap") // Copy PCAP file, comes as TAR archive
 			if err != nil {
 				logger.Println("WARNING: Error getting PCAP data: ", err)
 			} else {
@@ -604,25 +604,27 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			}
 			// Cleanup PCAP
 			logger.Printf("Killing PCAP container\n")
-			err = cli.ContainerKill(session.minipotSessionContext, session.pcapContainerID, "SIGKILL")
+			err = cli.ContainerKill(context.Background(), session.pcapContainerID, "SIGKILL")
 			if err != nil {
 				logger.Println("Error while killing container: ", err)
 			}
 		}
 
-		err = cli.ContainerKill(session.minipotSessionContext, session.containerID, "SIGKILL")
+		err = cli.ContainerKill(context.Background(), session.containerID, "SIGKILL")
 		if err != nil {
 			logger.Println("WARNING: Error while killing container: ", err)
 		}
 
 		logger.Println("Removing network.")
-		err = cli.NetworkRemove(session.minipotSessionContext, session.networkID)
+		err = cli.NetworkRemove(context.Background(), session.networkID)
 		if err != nil {
 			logger.Println("WARNING: error while removing network: ", err)
 		}
+		delete(sessions, session.SourceIP)
 	} else {
 		logger.Printf("Not first session, session %d\n", id)
 	}
 	nConn.Close()
+
 	logger.Printf("All done\n")
 }
