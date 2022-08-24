@@ -24,7 +24,6 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 
 		ip := strings.Split(c.RemoteAddr().String(), ":")
 		session.SourceIP = ip[0]
-		fmt.Println(session)
 		if _, ok := sessions[session.SourceIP]; !ok {
 			if debug {
 				logger.Println("New session")
@@ -32,13 +31,10 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 			sessions[session.SourceIP] = session
 
 		} else {
-			logger.Println("OLD SEsSION")
 			session = sessions[session.SourceIP]
 			session.SSHSessionID++
-			fmt.Println("CONTAINER ID:", session.containerID)
 		}
 		if !session.loginSuccessful {
-			fmt.Println("==============================NEW")
 			session.ClientVersion = string(c.ClientVersion())
 			a := authAttempt{
 				Username: c.User(),
@@ -46,7 +42,6 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 				Time:     time.Now(),
 				Method:   "password",
 			}
-			fmt.Println("AUTH ATTEMPT: ", session.getPasswordAuthAttempts())
 			if session.getPasswordAuthAttempts() == session.permitAttempt-1 { // Permit login on third attempt
 				logger.Println("Accepting connection")
 				session.User = c.User()
@@ -55,15 +50,12 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 				session.AuthAttempts = append(session.AuthAttempts, a)
 				session.loginSuccessful = true
 				session.SSHSessionID = 0
-				//sessions[session.SourceIP] = session
 				return nil, nil
 			} else {
 				session.AuthAttempts = append(session.AuthAttempts, a)
-				//sessions[session.SourceIP] = session
 			}
 
 		} else {
-			fmt.Println("==============================OLD")
 			if debug {
 				logger.Println("Existing session")
 			}
@@ -76,20 +68,17 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 				Method:   "password",
 			}
 
-			if string(pass) == session.Password { // Permit login on third attempt
+			if string(pass) == session.Password { // Accept previously used password
 				logger.Println("Accepting connection from existing session")
 				session.User = c.User()
 				session.Password = string(pass)
 				a.Successful = true
 				session.AuthAttempts = append(session.AuthAttempts, a)
-				//sessions[session.SourceIP] = session
 				return nil, nil
 			} else {
 				session.AuthAttempts = append(session.AuthAttempts, a)
-				//sessions[session.SourceIP] = session
 			}
 		}
-		//sessions[session.SourceIP] = session
 		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
 	}
 }
@@ -130,8 +119,6 @@ func ReadFromSSHChannel(channel ssh.Channel, size int) ([]byte, int, error) {
 	if err != nil && err.Error() != "EOF" {
 		return nil, 0, err
 	}
-	// fmt.Println("Read from SSH channel:", string(data[:n]))
-	// fmt.Printf("Read %d bytes\n", n)
 	return data[:n], n, nil
 }
 

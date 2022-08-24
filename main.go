@@ -105,7 +105,6 @@ func main() {
 		os.Exit(ERR_SSH_SERVE)
 	}
 
-	//sid := 0
 	for {
 
 		nConn, err := listener.Accept()
@@ -115,9 +114,7 @@ func main() {
 		}
 
 		session := sessionData{
-			//SSHSessionID:     sid,
 			MinipotSessionID: *globalSessionId,
-			//Timestamps:       append(Timestamps, time.Now),
 			GuestEnvHostname: *hostname,
 			NetworkMode:      *networkmode,
 			Image:            *baseimage,
@@ -137,9 +134,6 @@ func main() {
 		config.AddHostKey(private)
 		logger.Printf("New SSH session (%d)\n", session.SSHSessionID)
 		go handleClient(nConn, cli, config, &session, sessions, *outputDir, *debug)
-
-		// TODO, maybe do cleanup here?
-		//sid++
 	}
 }
 
@@ -428,16 +422,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 												channel.Close()
 												break
 											} else if len(msg) > 0 {
-												fmt.Println("MSG:", string(msg))
-
 												if !payloadSet && string(msg[0]) == "C" { // Copy file, we need to get payload size
-													fmt.Println("SET PAYLOAD SIZE")
 													parts := strings.Split(string(msg), " ")
 													payloadSize, err = strconv.Atoi(parts[1])
 													if err != nil {
 														logger.Println("Atoi error, ", err)
 													}
-													fmt.Println("SIZE:", payloadSize)
 													payloadSet = true
 												}
 											}
@@ -458,7 +448,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 									logger.Println("Error reading from exec attach: ", err)
 								}
 
-								// Seriously don't know why I have to slice up this slice, reading from exec attach returns garbage the first bytes
+								// First eight bytes are headers etc
 								_, err = channel.Write(data[8:])
 								if err != nil {
 									logger.Println("Error while writing to SSH channel: ", err)
@@ -500,9 +490,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 					}
 
 					inputChan <- data[0] // Send to input collector for later logging
-					// if session.inputTimeout > 0 {
-					// 	timeoutchan <- true // Send to input timeout handler
-					// }
 					if n > 0 {
 						if data[0] == 4 { // This is EOT, we want to catch this so client does not kill container
 							session.sshSessionCancel() // Instead cancel so we can collect data and cleanup container
@@ -560,15 +547,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	if err != nil {
 		logger.Println("WARNING: Error while writing JSON log: ", err)
 	}
-
-	// TODO below must only be done if timeout occured
-
-	// err = cli.ContainerUnpause(session.minipotSessionContext, session.containerID) // Must unpause before kill
-	// if err != nil {
-	// 	logger.Println("WARNING: Error while unpausing container.")
-	// }
-
-	//sessions[session.SourceIP] = session
 	if debug {
 		logger.Printf("Waiting for Minipot session end before killing container.\n")
 	}

@@ -149,24 +149,17 @@ func WriteToContainer(msg []byte, conn net.Conn) error {
 }
 
 func ReadFromContainer(reader *bufio.Reader) ([]byte, error) {
-	fmt.Println("Reading from container")
-	b := make([]byte, 20000000)
-	n, err := reader.Read(b) // Read output from container
+	b := make([]byte, 20000000) // Should be enough for receiving stuff over scp
+	n, err := reader.Read(b)    // Read output from container
 	if err != nil {
 		return nil, err
 	}
 	if n == 0 {
 		return nil, nil
 	}
-	fmt.Println("Read from container:", string(b[:n]))
-	fmt.Println("Read from container (raw):", b[:n])
-	fmt.Printf("Read %d bytes\n", n)
-	if b[0] == 1 {
-		// fmt.Println("STDOUT")
-		// fmt.Println("Payload is ", string(b[8:n]))
+	if b[0] == 1 { // Header indicates that is is from stdout. 2 == stderr.
 		return []byte(b[8:n]), nil
 	} else {
-		// fmt.Println("STDERR")
 		return nil, errors.New("Not from container stdout")
 	}
 
