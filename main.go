@@ -6,8 +6,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -135,7 +133,7 @@ func main() {
 
 func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, session *sessionData, sessions map[string]*sessionData, outputDir string, debug bool) {
 
-	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %s-%d-%d): ", APP_NAME, session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID), log.Ldate|log.Ltime|log.Lshortfile)
+	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %s-%s-%d): ", APP_NAME, session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID), log.Ldate|log.Ltime|log.Lshortfile)
 
 	session.minipotSessionContext, session.minipotSessionCancel = context.WithTimeout(context.Background(), time.Duration(session.sessionTimeout)*time.Second)
 	newCtx := context.Background()
@@ -285,7 +283,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			Stderr: true,
 			Stream: true,
 		}
-		hjresp, err := cli.ContainerAttach(context.Background(), session.containerID, containerAttachOpts)
+		cHjResp, err := cli.ContainerAttach(context.Background(), session.containerID, containerAttachOpts)
 		if err != nil {
 			logger.Println("Error while attaching to container:", err)
 			os.Exit(ERR_CONTAINER_ATTACH)
@@ -331,8 +329,11 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 					switch req.Type {
 					case "shell":
 						req.Reply(true, nil)
+						go handleContainerInput(channel, cHjResp, session, *logger, startReadChan, startWriteChan, inputChan)
+						go handleSSHInput(channel, cHjResp, session, *logger, startReadChan, startWriteChan, inputChan)
 						startReadChan <- true  // Pause reading container output, we don't want to read anything before this
 						startWriteChan <- true // Pause writing to container, we don't want to write anything before this
+
 					case "exec":
 						args := strings.Split(payloadStripControl, " ")
 
@@ -347,113 +348,117 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 						})
 						if err == nil {
 
-							cHjResp, err := cli.ContainerExecAttach(context.Background(), cResp.ID, types.ExecStartCheck{})
+							execResp, err := cli.ContainerExecAttach(context.Background(), cResp.ID, types.ExecStartCheck{})
 							if err != nil {
 								logger.Println("Error while attaching to exec: ", err)
 							}
+							req.Reply(true, nil)
+							go handleContainerExecInput(channel, execResp, session, *logger, startReadChan, startWriteChan, inputChan)
+							go handleSSHExecInput(channel, execResp, session, *logger, startReadChan, startWriteChan, inputChan)
+							startReadChan <- true  // Pause reading container output, we don't want to read anything before this
+							startWriteChan <- true // Pause writing to container, we don't want to write anything before this
+							// if args[0] == "scp" {
+							// 	for _, a := range args {
+							// 		if a == "-t" {
+							// 			var payloadSize int = 256
 
-							if args[0] == "scp" {
-								for _, a := range args {
-									if a == "-t" {
-										var payloadSize int = 256
+							// 			for {
 
-										for {
+							// 				msg, err := ReadFromContainer(cHjResp.Reader)
+							// 				if err != nil {
+							// 					logger.Println("Error while reading from container:", err)
+							// 				}
 
-											msg, err := ReadFromContainer(cHjResp.Reader)
-											if err != nil {
-												logger.Println("Error while reading from container:", err)
-											}
+							// 				err = writeToSSHChannel(msg, channel)
+							// 				if err != nil {
+							// 					logger.Println("Error while writing to SSH channel:", err)
+							// 				}
 
-											err = writeToSSHChannel(msg, channel)
-											if err != nil {
-												logger.Println("Error while writing to SSH channel:", err)
-											}
+							// 				msg, n, rserr := readFromSSHChannel(channel, payloadSize+1)
+							// 				if rserr != nil || n == 0 {
+							// 					channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMessage{0}))
+							// 					channel.CloseWrite()
+							// 					channel.Close()
+							// 					break
+							// 				}
 
-											msg, n, rserr := readFromSSHChannel(channel, payloadSize+1)
-											if rserr != nil || n == 0 {
-												channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMessage{0}))
-												channel.CloseWrite()
-												channel.Close()
-												break
-											}
+							// 				if n != 0 {
+							// 					if string(msg[0]) == "C" { // Copy file, we need to get payload size
+							// 						parts := strings.Split(string(msg), " ")
+							// 						payloadSize, err = strconv.Atoi(parts[1])
+							// 						if err != nil {
+							// 							logger.Println("Atoi error, ", err)
+							// 						}
+							// 					}
+							// 				}
 
-											if n != 0 {
-												if string(msg[0]) == "C" { // Copy file, we need to get payload size
-													parts := strings.Split(string(msg), " ")
-													payloadSize, err = strconv.Atoi(parts[1])
-													if err != nil {
-														logger.Println("Atoi error, ", err)
-													}
-												}
-											}
+							// 				err = WriteToContainer(msg, cHjResp.Conn)
+							// 				if err != nil {
+							// 					logger.Println("Error while writing to container:", err)
+							// 				}
 
-											err = WriteToContainer(msg, cHjResp.Conn)
-											if err != nil {
-												logger.Println("Error while writing to container:", err)
-											}
+							// 			}
+							// 			cHjResp.Conn.Close()
+							// 		} else if a == "-f" {
+							// 			req.Reply(true, nil)
+							// 			payloadSize := 1024
+							// 			payloadSet := false
+							// 			for {
 
-										}
-										cHjResp.Conn.Close()
-									} else if a == "-f" {
-										req.Reply(true, nil)
-										payloadSize := 1024
-										payloadSet := false
-										for {
+							// 				msg, n, rserr := readFromSSHChannel(channel, payloadSize)
+							// 				if rserr != nil || n == 0 {
+							// 					logger.Println("Error while reading from SSH channel:", rserr)
+							// 				}
 
-											msg, n, rserr := readFromSSHChannel(channel, payloadSize)
-											if rserr != nil || n == 0 {
-												logger.Println("Error while reading from SSH channel:", rserr)
-											}
+							// 				err = WriteToContainer(msg, cHjResp.Conn)
+							// 				if err != nil {
+							// 					logger.Println("Error while writing to container:", err)
+							// 				}
 
-											err = WriteToContainer(msg, cHjResp.Conn)
-											if err != nil {
-												logger.Println("Error while writing to container:", err)
-											}
+							// 				msg, err := ReadFromContainer(cHjResp.Reader)
+							// 				if err != nil {
+							// 					logger.Println("Error while reading from container:", err)
+							// 					channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMessage{0}))
+							// 					channel.CloseWrite()
+							// 					channel.Close()
+							// 					break
+							// 				} else if len(msg) > 0 {
+							// 					if !payloadSet && string(msg[0]) == "C" { // Copy file, we need to get payload size
+							// 						parts := strings.Split(string(msg), " ")
+							// 						payloadSize, err = strconv.Atoi(parts[1])
+							// 						if err != nil {
+							// 							logger.Println("Atoi error, ", err)
+							// 						}
+							// 						payloadSet = true
+							// 					}
+							// 				}
 
-											msg, err := ReadFromContainer(cHjResp.Reader)
-											if err != nil {
-												logger.Println("Error while reading from container:", err)
-												channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMessage{0}))
-												channel.CloseWrite()
-												channel.Close()
-												break
-											} else if len(msg) > 0 {
-												if !payloadSet && string(msg[0]) == "C" { // Copy file, we need to get payload size
-													parts := strings.Split(string(msg), " ")
-													payloadSize, err = strconv.Atoi(parts[1])
-													if err != nil {
-														logger.Println("Atoi error, ", err)
-													}
-													payloadSet = true
-												}
-											}
+							// 				err = writeToSSHChannel(msg, channel)
+							// 				if err != nil {
+							// 					logger.Println("Error while writing to SSH channel:", err)
+							// 				}
+							// 			}
+							// 			logger.Println("Closing connection")
+							// 			cHjResp.Conn.Close()
+							// 		}
+							// 	}
+							// } else {
 
-											err = writeToSSHChannel(msg, channel)
-											if err != nil {
-												logger.Println("Error while writing to SSH channel:", err)
-											}
-										}
-										logger.Println("Closing connection")
-										cHjResp.Conn.Close()
-									}
-								}
-							} else {
+							// 	data, err := ioutil.ReadAll(cHjResp.Reader)
+							// 	if err != nil {
+							// 		logger.Println("Error reading from exec attach: ", err)
+							// 	}
 
-								data, err := ioutil.ReadAll(cHjResp.Reader)
-								if err != nil {
-									logger.Println("Error reading from exec attach: ", err)
-								}
+							// 	// First eight bytes are headers etc
+							// 	_, err = channel.Write(data[8:])
+							// 	if err != nil {
+							// 		logger.Println("Error while writing to SSH channel: ", err)
+							// 	}
 
-								// First eight bytes are headers etc
-								_, err = channel.Write(data[8:])
-								if err != nil {
-									logger.Println("Error while writing to SSH channel: ", err)
-								}
-
-								channel.Close()
-								cHjResp.Close()
-							}
-							session.sshSessionCancel()
+							// 	channel.Close()
+							// 	cHjResp.Close()
+							// }
+							// session.sshSessionCancel()
 						} else {
 							logger.Println("Error while creating exec: ", err)
 							err = req.Reply(false, nil)
@@ -468,47 +473,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 				}
 			}(requests)
 
-			go func(w io.WriteCloser) { // Read from terminal and write to container input
-				<-startReadChan
-
-				err = WriteToContainer([]byte{'\n'}, hjresp.Conn)
-				if err != nil {
-					logger.Println("Error while writing to container:", err)
-				}
-
-				defer channel.Close()
-				for {
-					data, n, err := readFromSSHChannel(channel, 32) // Read from SSH channel
-					if err != nil {
-						logger.Println("SSH Channel read error: ", err)
-						session.sshSessionCancel()
-						break
-					}
-
-					inputChan <- data[0] // Send to input collector for later logging
-					if n > 0 {
-						if data[0] == 4 { // This is EOT, we want to catch this so client does not kill container
-							session.sshSessionCancel() // Instead cancel so we can collect data and cleanup container
-							break
-						} else {
-							w.Write(data) // Forward to container input
-						}
-					}
-
-				}
-			}(hjresp.Conn)
-
-			go func() { // Read output from container and write back to user
-				<-startWriteChan // Wait for other goroutine to start
-				for {
-					data, err := hjresp.Reader.ReadByte() // Read output from container
-					if err != nil {
-						session.minipotSessionCancel()
-						break
-					}
-					channel.Write([]byte{data}) // Forward to SSH channel
-				}
-			}()
 		}
 	}()
 	<-session.sshSessionContext.Done() // Something cancelled the SSH session
