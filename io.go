@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -11,17 +10,10 @@ import (
 )
 
 func handleSSHInput(channel ssh.Channel, hjresp types.HijackedResponse, session *sessionData, logger log.Logger, startReadChan chan bool, startWriteChan chan bool, inputChan chan byte) {
-	// go func(w io.WriteCloser) { // Read from terminal and write to container input
 	<-startReadChan
-
-	// err = WriteToContainer([]byte{'\n'}, hjresp.Conn)
-	// if err != nil {
-	// 	logger.Println("Error while writing to container:", err)
-	// }
 
 	defer channel.Close()
 	for {
-		fmt.Println("READING FROM SSH")
 		data, n, err := readFromSSHChannel(channel, 256) // Read from SSH channel
 		if err != nil {
 			logger.Println("SSH Channel read error: ", err)
@@ -29,7 +21,6 @@ func handleSSHInput(channel ssh.Channel, hjresp types.HijackedResponse, session 
 			break
 		}
 		if n > 0 {
-			fmt.Println("FROM SSH TO CONTAINER: ", data)
 			inputChan <- data[0] // Send to input collector for later logging
 
 			if data[0] == 4 { // This is EOT, we want to catch this so client does not kill container
@@ -43,37 +34,28 @@ func handleSSHInput(channel ssh.Channel, hjresp types.HijackedResponse, session 
 		}
 
 	}
-	// }(hjresp.Conn)
 }
 
 func handleContainerInput(channel ssh.Channel, hjresp types.HijackedResponse, session *sessionData, logger log.Logger, startReadChan chan bool, startWriteChan chan bool, inputChan chan byte) {
 
-	// go func() { // Read output from container and write back to user
 	<-startWriteChan            // Wait for other goroutine to start
 	channel.Write([]byte{'\n'}) // Just to force a prompt
 	for {
-		fmt.Println("READING FROM CONTAINER")
 		data, err := hjresp.Reader.ReadByte() // Read output from container
 		if err != nil {
 			session.minipotSessionCancel()
 			break
 		}
-		fmt.Println("FROM CONTAINER TO SSH: ", data)
 		channel.Write([]byte{data}) // Forward to SSH channel
 	}
-	// }()
 }
 
 func handleContainerExecInput(channel ssh.Channel, hjresp types.HijackedResponse, session *sessionData, logger log.Logger, startReadChan chan bool, startWriteChan chan bool, inputChan chan byte) {
 
-	// go func() { // Read output from container and write back to user
 	<-startWriteChan // Wait for other goroutine to start
 	for {
-		fmt.Println("READING FROM CONTAINER")
-
 		data, err := ReadFromContainer(hjresp.Reader)
 		if err != nil {
-			logger.Println("Error while reading from container:", err)
 			channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatusMessage{0}))
 			channel.CloseWrite()
 			channel.Close()
@@ -82,21 +64,13 @@ func handleContainerExecInput(channel ssh.Channel, hjresp types.HijackedResponse
 			break
 
 		}
-
-		fmt.Println("FROM CONTAINER TO SSH: ", data)
 		writeToSSHChannel(data, channel)
 	}
-	// }()
 }
 
 func handleSSHExecInput(channel ssh.Channel, hjresp types.HijackedResponse, session *sessionData, logger log.Logger, startReadChan chan bool, startWriteChan chan bool, inputChan chan byte) {
-	// go func(w io.WriteCloser) { // Read from terminal and write to container input
 	<-startReadChan
 
-	// err = WriteToContainer([]byte{'\n'}, hjresp.Conn)
-	// if err != nil {
-	// 	logger.Println("Error while writing to container:", err)
-	// }
 	payloadSize := 256
 	var err error
 	defer channel.Close()
@@ -123,7 +97,5 @@ func handleSSHExecInput(channel ssh.Channel, hjresp types.HijackedResponse, sess
 		if err != nil {
 			logger.Println("Error while writing to container:", err)
 		}
-
 	}
-	// }(hjresp.Conn)
 }
