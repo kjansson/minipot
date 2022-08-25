@@ -16,7 +16,6 @@ func handleSSHInput(channel ssh.Channel, hjresp types.HijackedResponse, session 
 	for {
 		data, n, err := readFromSSHChannel(channel, 256) // Read from SSH channel
 		if err != nil {
-			logger.Println("SSH Channel read error: ", err)
 			session.sshSessionCancel()
 			break
 		}
