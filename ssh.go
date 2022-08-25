@@ -136,12 +136,12 @@ func createPrivateKey(path string) ([]byte, error) {
 	if path != "" { // It needs some kind, either we supply one via file, or we create a new one for each session
 		privateKey, err = ioutil.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to read private key: %s", err)
+			return nil, fmt.Errorf("failed to read private key: %s", err)
 		}
 	} else {
 		privateKeyGen, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to generate private key: %s", err)
+			return nil, fmt.Errorf("failed to generate private key: %s", err)
 		}
 		privateKey = pem.EncodeToMemory(&pem.Block{
 			Type:  "RSA PRIVATE KEY",
