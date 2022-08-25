@@ -29,10 +29,13 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 				logger.Println("New session")
 			}
 			sessions[session.SourceIP] = session
-			sessions[session.SourceIP].ClientSessionId++
+			sessions[session.SourceIP].ClientSessionId = fmt.Sprintf("%s-%d", session.SourceIP, time.Now().Unix())
 		} else {
 			session = sessions[session.SourceIP]
 			session.SSHSessionID++
+		}
+		if _, ok := session.ClientSessions[session.ClientSessionId]; !ok {
+			session.ClientSessions[session.ClientSessionId] = &sshSessionInfo{}
 		}
 		if !session.loginSuccessful {
 			session.ClientVersion = string(c.ClientVersion())
@@ -42,17 +45,18 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 				Time:     time.Now(),
 				Method:   "password",
 			}
+
 			if session.getPasswordAuthAttempts() == session.permitAttempt-1 { // Permit login on third attempt
 				logger.Println("Accepting connection")
 				session.User = c.User()
 				session.Password = string(pass)
 				a.Successful = true
-				session.AuthAttempts = append(session.AuthAttempts, a)
+				session.ClientSessions[session.ClientSessionId].AuthAttempts = append(session.ClientSessions[session.ClientSessionId].AuthAttempts, a)
 				session.loginSuccessful = true
 				session.SSHSessionID = 0
 				return nil, nil
 			} else {
-				session.AuthAttempts = append(session.AuthAttempts, a)
+				session.ClientSessions[session.ClientSessionId].AuthAttempts = append(session.ClientSessions[session.ClientSessionId].AuthAttempts, a)
 			}
 
 		} else {
@@ -73,10 +77,10 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 				session.User = c.User()
 				session.Password = string(pass)
 				a.Successful = true
-				session.AuthAttempts = append(session.AuthAttempts, a)
+				session.ClientSessions[session.ClientSessionId].AuthAttempts = append(session.ClientSessions[session.ClientSessionId].AuthAttempts, a)
 				return nil, nil
 			} else {
-				session.AuthAttempts = append(session.AuthAttempts, a)
+				session.ClientSessions[session.ClientSessionId].AuthAttempts = append(session.ClientSessions[session.ClientSessionId].AuthAttempts, a)
 			}
 		}
 		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
@@ -84,9 +88,13 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 }
 
 // Wrapper for auth callback, to include login attempts other than password
-func authLogWrapper(session *sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, method string, err error) {
+func authLogWrapper(session *sessionData, sessions map[string]*sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, method string, err error) {
 
 	return func(c ssh.ConnMetadata, method string, err error) {
+		if _, ok := session.ClientSessions[session.ClientSessionId]; !ok {
+			session.ClientSessions[session.ClientSessionId] = &sshSessionInfo{}
+		}
+
 		if method != "password" {
 			if debug {
 				logger.Printf("(DEBUG) Auth attempt: Username %s, method %s\n", c.User(), method)
@@ -97,7 +105,7 @@ func authLogWrapper(session *sessionData, debug bool, logger log.Logger) func(c 
 				Method:     method,
 				Successful: false,
 			}
-			session.AuthAttempts = append(session.AuthAttempts, a)
+			session.ClientSessions[session.ClientSessionId].AuthAttempts = append(session.ClientSessions[session.ClientSessionId].AuthAttempts, a)
 		}
 		ip := strings.Split(c.RemoteAddr().String(), ":")
 		session.SourceIP = ip[0]

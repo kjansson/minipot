@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"time"
 )
 
 // Session information, exported values are used in JSON log
@@ -12,7 +11,7 @@ type sessionData struct {
 	sshSessionContext     context.Context
 	sshSessionCancel      context.CancelFunc
 	MinipotSessionID      string
-	ClientSessionId       int
+	ClientSessionId       string
 	SSHSessionID          int
 	User                  string
 	Password              string
@@ -20,12 +19,7 @@ type sessionData struct {
 	GuestEnvHostname      string
 	SourceIP              string
 	ClientVersion         string
-	Timestamps            []time.Time
-	AuthAttempts          []authAttempt
-	SSHRequests           []sshRequest
-	UserInput             []Input
-	ModifiedFiles         []string
-	ModifiedFilesIgnore   []string
+	ClientSessions        map[string]*sshSessionInfo
 	LoginError            string
 	NetworkMode           string
 	containerID           string
@@ -39,28 +33,30 @@ type sessionData struct {
 	permitAttempt         int
 }
 
+type sshSessionInfo struct {
+	AuthAttempts        []authAttempt
+	SSHRequests         []sshRequest
+	UserInput           []Input
+	ModifiedFiles       []string
+	ModifiedFilesIgnore []string
+}
+
 func (s sessionData) getPasswordAuthAttempts() int {
-	attemps := 0
-	for _, a := range s.AuthAttempts {
-		if a.Method == "password" {
-			attemps++
-		}
-	}
-	return attemps
+	return len(s.ClientSessions[s.ClientSessionId].AuthAttempts)
 }
 
 func (s sessionData) removeIgnoredModifiedFiles() []string {
 	keepFiles := []string{}
 
-	for index, file := range s.ModifiedFiles {
+	for index, file := range s.ClientSessions[s.ClientSessionId].ModifiedFiles {
 		found := false
-		for _, ignore := range s.ModifiedFilesIgnore {
+		for _, ignore := range s.ClientSessions[s.ClientSessionId].ModifiedFilesIgnore {
 			if file == ignore {
 				found = true
 			}
 		}
 		if !found {
-			keepFiles = append(keepFiles, s.ModifiedFiles[index])
+			keepFiles = append(keepFiles, s.ClientSessions[s.ClientSessionId].ModifiedFiles[index])
 		}
 	}
 	return keepFiles

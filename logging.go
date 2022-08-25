@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func createJsonLog(session sessionData, outputDir string) error {
+func createJsonLog(session sessionData, sessions map[string]*sessionData, outputDir string) error {
 
 	if !strings.HasSuffix(outputDir, "/") {
 		outputDir = fmt.Sprintf("%s/", outputDir)
@@ -19,7 +19,7 @@ func createJsonLog(session sessionData, outputDir string) error {
 		return err
 	}
 
-	filename := fmt.Sprintf("%s-%d-%d.json", session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID)
+	filename := fmt.Sprintf("%s-%s-%d.json", session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID)
 	f, err := os.Create(outputDir + filename)
 	if err != nil {
 		return err
@@ -33,13 +33,13 @@ func createJsonLog(session sessionData, outputDir string) error {
 	return nil
 }
 
-func createLog(session sessionData, outputDir string) error {
+func createLog(session sessionData, sessions map[string]*sessionData, outputDir string) error {
 
 	if !strings.HasSuffix(outputDir, "/") {
 		outputDir = fmt.Sprintf("%s/", outputDir)
 	}
 
-	filename := fmt.Sprintf("%s-%d-%d.json", session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID)
+	filename := fmt.Sprintf("%s-%s-%d", session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID)
 	f, err := os.Create(outputDir + filename)
 	if err != nil {
 		return err
@@ -54,18 +54,6 @@ func createLog(session sessionData, outputDir string) error {
 	if err != nil {
 		return err
 	}
-
-	// str = fmt.Sprintf("Start time: %s (%d)\n", session.TimeStart.Format(time.UnixDate), session.TimeStart.Unix())
-	// f.WriteString(str)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// str = fmt.Sprintf("End time: %s (%d)\n", session.TimeEnd.Format(time.UnixDate), session.TimeEnd.Unix())
-	// f.WriteString(str)
-	// if err != nil {
-	// 	return err
-	// }
 
 	str = "Session end reason: "
 	if session.TimedOutByNoInput {
@@ -82,7 +70,7 @@ func createLog(session sessionData, outputDir string) error {
 	}
 
 	f.WriteString("Authentication attempts;\n")
-	for i, a := range session.AuthAttempts {
+	for i, a := range session.ClientSessions[sessions[session.SourceIP].ClientSessionId].AuthAttempts {
 		if a.Method == "password" {
 			if a.Successful {
 				str = fmt.Sprintf("Accepted attempt %d at %s using password method: username: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Username, a.Password)
@@ -100,7 +88,7 @@ func createLog(session sessionData, outputDir string) error {
 
 	str = ""
 	f.WriteString("SSH requests;\n")
-	for _, r := range session.SSHRequests {
+	for _, r := range session.ClientSessions[sessions[session.SourceIP].ClientSessionId].SSHRequests {
 		str = fmt.Sprintf("SSH request: Type '%s', payload '%s'\n", r.Type, r.Payload)
 	}
 	f.WriteString(str)
@@ -109,7 +97,7 @@ func createLog(session sessionData, outputDir string) error {
 	}
 	str = ""
 	f.WriteString("User input;\n")
-	for _, u := range session.UserInput {
+	for _, u := range session.ClientSessions[sessions[session.SourceIP].ClientSessionId].UserInput {
 		str := fmt.Sprintf("%s: '%s'\n", u.Time.Format(time.UnixDate), u.Data)
 		f.WriteString(str)
 		if err != nil {
@@ -118,7 +106,7 @@ func createLog(session sessionData, outputDir string) error {
 	}
 	str = ""
 	f.WriteString("File modified during session;\n")
-	for _, file := range session.ModifiedFiles {
+	for _, file := range session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFiles {
 		str := fmt.Sprintf("Path: %s\n", file)
 		f.WriteString(str)
 		if err != nil {

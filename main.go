@@ -119,14 +119,12 @@ func main() {
 			sessionTimeout:   *sessionTimeout,
 			PcapEnabled:      usePcap,
 			permitAttempt:    *permitAttempt,
+			ClientSessions:   make(map[string]*sshSessionInfo),
 		}
-		timestamps := session.Timestamps
-		timestamps = append(timestamps, time.Now())
-		session.Timestamps = timestamps
 
 		config := &ssh.ServerConfig{
 			PasswordCallback: authCallBackWrapper(&session, sessions, *debug, *logger),
-			AuthLogCallback:  authLogWrapper(&session, *debug, *logger),
+			AuthLogCallback:  authLogWrapper(&session, sessions, *debug, *logger),
 		}
 
 		config.AddHostKey(private)
@@ -137,7 +135,7 @@ func main() {
 
 func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, session *sessionData, sessions map[string]*sessionData, outputDir string, debug bool) {
 
-	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %d): ", APP_NAME, session.SSHSessionID), log.Ldate|log.Ltime|log.Lshortfile)
+	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %s-%d-%d): ", APP_NAME, session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID), log.Ldate|log.Ltime|log.Lshortfile)
 
 	session.minipotSessionContext, session.minipotSessionCancel = context.WithTimeout(context.Background(), time.Duration(session.sessionTimeout)*time.Second)
 	newCtx := context.Background()
@@ -255,7 +253,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 					Data: line,
 					Time: time.Now(),
 				}
-				session.UserInput = append(session.UserInput, i)
+				session.ClientSessions[sessions[session.SourceIP].ClientSessionId].UserInput = append(session.ClientSessions[sessions[session.SourceIP].ClientSessionId].UserInput, i)
 				line = ""
 			} else {
 				line = fmt.Sprintf("%s%s", line, string(b))
@@ -274,7 +272,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 				if debug {
 					logger.Printf("Modified file: %s\n", path)
 				}
-				session.ModifiedFilesIgnore = append(session.ModifiedFilesIgnore, path)
+				session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFilesIgnore = append(session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFilesIgnore, path)
 			}
 		}
 
@@ -329,7 +327,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 						Type:    req.Type,
 						Payload: payloadStripControl,
 					}
-					session.SSHRequests = append(session.SSHRequests, request)
+					session.ClientSessions[sessions[session.SourceIP].ClientSessionId].SSHRequests = append(session.ClientSessions[sessions[session.SourceIP].ClientSessionId].SSHRequests, request)
 					switch req.Type {
 					case "shell":
 						req.Reply(true, nil)
@@ -516,32 +514,28 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	<-session.sshSessionContext.Done() // Something cancelled the SSH session
 
 	logger.Printf("SSH session ended\n")
-	timestamps := session.Timestamps
-	timestamps = append(timestamps, time.Now())
-	session.Timestamps = timestamps
 
 	// Save modified file paths
 	diffs, err := getContainerFileDiff(cli, session.containerID, *logger, debug)
 	if err != nil {
 		logger.Println("Error while getting diffs: ", err)
 	} else {
-		session.ModifiedFiles = append(session.ModifiedFiles, diffs...)
+		session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFiles = append(session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFiles, diffs...)
 	}
-	//cli.ContainerPause(session.minipotSessionContext, session.containerID) // Pause container
-	session.ModifiedFiles = session.removeIgnoredModifiedFiles()
+	session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFiles = session.removeIgnoredModifiedFiles()
 
 	if debug {
-		for _, file := range session.ModifiedFiles {
+		for _, file := range session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFiles {
 			logger.Printf("Modified file: %s\n", file)
 		}
 	}
 
 	logger.Printf("Writing log\n")
-	err = createLog(*session, outputDir) // Create text log
+	err = createLog(*session, sessions, outputDir) // Create text log
 	if err != nil {
 		logger.Println("WARNING: Error while writing log: ", err)
 	}
-	err = createJsonLog(*session, outputDir) // JSON log
+	err = createJsonLog(*session, sessions, outputDir) // JSON log
 	if err != nil {
 		logger.Println("WARNING: Error while writing JSON log: ", err)
 	}
