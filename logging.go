@@ -124,8 +124,7 @@ func createPCAPFile(session sessionData, outputDir string, pcap []byte) error {
 	if !strings.HasSuffix(outputDir, "/") {
 		outputDir = fmt.Sprintf("%s/", outputDir)
 	}
-
-	filename := fmt.Sprintf("%s-%d.pcap", session.MinipotSessionID, session.SSHSessionID)
+	filename := fmt.Sprintf("%s-%s-%d.pcap", session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID)
 	f, err := os.Create(outputDir + filename)
 	if err != nil {
 		return err
