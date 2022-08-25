@@ -38,7 +38,7 @@ type sshSessionInfo struct {
 	SSHRequests         []sshRequest
 	UserInput           []Input
 	ModifiedFiles       []string
-	ModifiedFilesIgnore []string
+	modifiedFilesIgnore []string
 }
 
 func (s sessionData) getPasswordAuthAttempts() int {

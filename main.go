@@ -270,7 +270,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 				if debug {
 					logger.Printf("Modified file: %s\n", path)
 				}
-				session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFilesIgnore = append(session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFilesIgnore, path)
+				session.ClientSessions[sessions[session.SourceIP].ClientSessionId].modifiedFilesIgnore = append(session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFilesIgnore, path)
 			}
 		}
 
