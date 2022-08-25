@@ -50,7 +50,7 @@ func (s sessionData) removeIgnoredModifiedFiles() []string {
 
 	for index, file := range s.ClientSessions[s.ClientSessionId].ModifiedFiles {
 		found := false
-		for _, ignore := range s.ClientSessions[s.ClientSessionId].ModifiedFilesIgnore {
+		for _, ignore := range s.ClientSessions[s.ClientSessionId].modifiedFilesIgnore {
 			if file == ignore {
 				found = true
 			}
