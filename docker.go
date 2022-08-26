@@ -53,11 +53,11 @@ func buildPCAPContainer(ctx context.Context, cli *client.Client, logger log.Logg
 
 	err := writeTar(tarWriter, "Dockerfile", []byte(PCAP_DOCKER_FILE))
 	if err != nil {
-		fmt.Errorf("Error writing Dockerfile to tarball: %s", err)
+		fmt.Errorf("error writing Dockerfile to tarball: %s", err)
 	}
 	err = writeTar(tarWriter, "entrypoint.sh", []byte(PCAP_ENTRYPOINT))
 	if err != nil {
-		fmt.Errorf("Error writing entrypoint.sh to tarball: %s", err)
+		fmt.Errorf("error writing entrypoint.sh to tarball: %s", err)
 	}
 
 	// Build PCAP image
@@ -70,13 +70,13 @@ func buildPCAPContainer(ctx context.Context, cli *client.Client, logger log.Logg
 			Remove:     true,
 			Tags:       []string{PCAP_IMAGE}})
 	if err != nil {
-		fmt.Errorf("Error building PCAP image: %s", err)
+		fmt.Errorf("error building PCAP image: %s", err)
 	}
 	defer imageBuildResponse.Body.Close()
 	// Read but discard output
 	_, err = io.Copy(ioutil.Discard, imageBuildResponse.Body)
 	if err != nil {
-		fmt.Errorf("Error reading PCAP image build output: %s", err)
+		fmt.Errorf("error reading PCAP image build output: %s", err)
 	}
 
 	return nil
@@ -160,7 +160,7 @@ func ReadFromContainer(reader *bufio.Reader) ([]byte, error) {
 	if b[0] == 1 { // Header indicates that is is from stdout. 2 == stderr.
 		return []byte(b[8:n]), nil
 	} else {
-		return nil, errors.New("Not from container stdout")
+		return nil, errors.New("not from container stdout")
 	}
 
 }

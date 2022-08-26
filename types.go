@@ -44,12 +44,3 @@ type sshRequest struct {
 	Type    string
 	Payload string
 }
-
-// type Timestamp {
-// 	TimeStart time.time
-// 	TimeEnd   time.time
-// }
-
-// type sessions struct {
-// 	liveSessions map[string]sessionData
-// }
