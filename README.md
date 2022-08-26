@@ -4,12 +4,12 @@ Minipot is a simple to use SSH honeypot written in Go leveraging the Docker engi
 
 # How does it work?
 Minipot is a fake/modified SSH server which accepts login with any username and password after a given number of attempts.  
-When an attacker is given access, a container is started just for that session. The base image used is ubuntu:18.04 at the moment.
-The SSH session is handled by the server itself and input/output is merely forwarded to and from the container, making it appear to the attacker that is actually has a direct SSH session. This also allows for capturing and controlling input and output, and controlling the environment, e.g. setting up a legit user for the accepted session. 
-The client session can be configured to timeout after a certain amount of time after SSH session starts, to not keep containers/attackers hanging around forever. 
-SSH client information, origin, authentication attempts, SSH requests, user input and file system changes are logged. There's also a packet capture option.
-  
-Minipot is dead simple to use. Just an executable to run, while having Docker up and running. It will run just fine without any arguments if you just want to try it out, but you can configure it to you liking if you want. Read more below.
+When an attacker is given access, a container is started just for that session, and a user environment is created.
+Minipot handles the SSH session, and merely forwards input/output to and from the container, making it totally transparent to the attacker while still being in full control of the session and being able to capture input etc.
+The container will stay alive for the session duration (which is configurable) and handle subsequent requests for the same client.  
+After the session ends, SSH client information, origin, authentication attempts, SSH requests, user input and file system changes are logged. There is also an option to enable packet capture.
+
+Minipot is aimed at ease of use. It's just an executable to run, while having Docker up and running. It will run just fine without any arguments if you just want to try it out, but you can configure it to you liking if you want. Read more below.
 
 # Requirements
 * Docker engine running - https://docs.docker.com/engine/install/
