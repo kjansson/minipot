@@ -14,3 +14,4 @@ for a in ${MINIPOT_ENVS[@]}; do
 done
 
 /minipot ${args[*]}
+
