@@ -9,17 +9,13 @@ Minipot handles the SSH session, and merely forwards input/output to and from th
 The container will stay alive for the session duration (which is configurable) and handle subsequent requests for the same client.  
 After the session ends, SSH client information, origin, authentication attempts, SSH requests, user input and file system changes are logged. There is also an option to enable packet capture.
 
-Minipot is aimed at ease of use. It's just an executable to run, while having Docker up and running. It will run just fine without any arguments if you just want to try it out, but you can configure it to you liking if you want. Read more below.
+Minipot is aimed at ease of use. Just run the binary or run as a container, while having Docker up and running. It will do just fine without any arguments if you just want to try it out, but you can configure it to you liking if you want. Read more below.
 
 # Requirements
 * Docker engine running - https://docs.docker.com/engine/install/
-* Go for building binary - https://go.dev/doc/install
+* Go for building binary (if you don't run Minipot in Docker) - https://go.dev/doc/install
 
-# Build
-```
-go mod tidy
-go build
-```
+
 
 # Flags
 ```
@@ -34,14 +30,44 @@ go build
 -bindaddress    # SSH bind address and port in format 'ip:port'. Default is '0.0.0.0:22'.
 ```
 
+# Docker environment variables
+When running in Docker, all flags can be set through environment variables with the same name as the flag, but in all caps.
+
 # How to run it
+
+## Run the binary
+
+
+```
+# Build binary
+go mod tidy
+go build
+```
+
 ```
 # Run with default settings
 ./minipot
 
-# With some options
+# Or run with some options
 ./minipot -debug=true -hostname=my-important-server-01 -outputdir=/var/log/minipot -id=tuesday-1 -pcap=true
 ```
+
+## Run in Docker
+```
+# Build image
+docker build -t minipot-base .
+```
+
+```
+# Run with default settings
+docker run -v /var/run/docker.sock:/var/run/docker.sock -p 22:22 minipot-base
+```
+
+```
+# Or run with some options
+docker run -v /var/run/docker.sock:/var/run/docker.sock -v ./logs:/logs -p 22:22 -e OUTPUTDIR=/logs -e PCAP=true -e HOSTNAME=my-important-server-01 minipot-base
+```
+
 # Packet capture
 Packet capture can be enabled by using the flag '-pcap=true'. It will run tcpdump in a separate container attached to the container network of the client (so to be invisible to the client), and PCAP files will be stored along with the regular log files. Be aware that it captures all traffic, which could potentially be CPU-intensive and eat some storage.
 Package capture is only available when using -networkmode=bridge
