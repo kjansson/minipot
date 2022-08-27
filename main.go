@@ -252,7 +252,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 						Data: line,
 						Time: time.Now(),
 					}
-					session.ClientSessions[sessions[session.SourceIP].ClientSessionId].UserInput = append(session.ClientSessions[sessions[session.SourceIP].ClientSessionId].UserInput, i)
+					session.ClientSessions[session.ClientSessionId].UserInput = append(session.ClientSessions[session.ClientSessionId].UserInput, i)
 					line = ""
 				} else {
 					line = fmt.Sprintf("%s%s", line, string(b))
@@ -271,7 +271,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 					if debug {
 						logger.Printf("Modified file: %s\n", path)
 					}
-					session.ClientSessions[sessions[session.SourceIP].ClientSessionId].modifiedFilesIgnore = append(session.ClientSessions[sessions[session.SourceIP].ClientSessionId].modifiedFilesIgnore, path)
+					session.ClientSessions[session.ClientSessionId].modifiedFilesIgnore = append(session.ClientSessions[session.ClientSessionId].modifiedFilesIgnore, path)
 				}
 			}
 
@@ -326,7 +326,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 							Type:    req.Type,
 							Payload: payloadStripControl,
 						}
-						session.ClientSessions[sessions[session.SourceIP].ClientSessionId].SSHRequests = append(session.ClientSessions[sessions[session.SourceIP].ClientSessionId].SSHRequests, request)
+						session.ClientSessions[session.ClientSessionId].SSHRequests = append(session.ClientSessions[session.ClientSessionId].SSHRequests, request)
 						switch req.Type {
 						case "shell":
 							req.Reply(true, nil)
@@ -384,12 +384,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		if err != nil {
 			logger.Println("Error while getting diffs: ", err)
 		} else {
-			session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFiles = append(session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFiles, diffs...)
+			session.ClientSessions[session.ClientSessionId].ModifiedFiles = append(session.ClientSessions[session.ClientSessionId].ModifiedFiles, diffs...)
 		}
-		session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFiles = session.removeIgnoredModifiedFiles()
+		session.ClientSessions[session.ClientSessionId].ModifiedFiles = session.removeIgnoredModifiedFiles()
 
 		if debug {
-			for _, file := range session.ClientSessions[sessions[session.SourceIP].ClientSessionId].ModifiedFiles {
+			for _, file := range session.ClientSessions[session.ClientSessionId].ModifiedFiles {
 				logger.Printf("Modified file: %s\n", file)
 			}
 		}
