@@ -395,11 +395,11 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 
 		logger.Printf("Writing log\n")
-		err = createLog(*session, sessions, outputDir) // Create text log
+		err = session.createLog(outputDir) // Create text log
 		if err != nil {
 			logger.Println("WARNING: Error while writing log: ", err)
 		}
-		err = createJsonLog(*session, sessions, outputDir) // JSON log
+		err = session.createJsonLog(outputDir) // JSON log
 		if err != nil {
 			logger.Println("WARNING: Error while writing JSON log: ", err)
 		}
@@ -426,7 +426,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 					buf := new(bytes.Buffer)
 					buf.ReadFrom(tarReader)
 
-					err = createPCAPFile(*session, outputDir, buf.Bytes()) // Create PCAP file in log dir
+					err = session.createPCAPFile(outputDir, buf.Bytes()) // Create PCAP file in log dir
 					if err != nil {
 						logger.Println("WARNING: Error creating PCAP file: ", err)
 					}
