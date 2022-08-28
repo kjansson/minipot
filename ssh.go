@@ -18,6 +18,9 @@ import (
 func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 
 	return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+
+		session.sshSessionID++
+
 		if debug {
 			logger.Printf("(DEBUG) Password auth attempt: Username %s, password %s\n", c.User(), string(pass))
 		}
@@ -31,11 +34,17 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 			sessions[session.SourceIP] = session
 			sessions[session.SourceIP].ClientSessionId = fmt.Sprintf("%s-%d", session.SourceIP, time.Now().Unix())
 		} else {
+			if debug {
+				logger.Println("Existing session")
+			}
 			session = sessions[session.SourceIP]
-			session.SSHSessionID++
+			session.ClientSessionId = fmt.Sprintf("%s-%d", session.SourceIP, time.Now().Unix())
 		}
-		if _, ok := session.ClientSessions[session.ClientSessionId]; !ok {
-			session.ClientSessions[session.ClientSessionId] = &sshSessionInfo{}
+		if _, ok := session.ClientSessions[session.sshSessionID]; !ok {
+			if debug {
+				logger.Println("New client session")
+			}
+			session.ClientSessions[session.sshSessionID] = &sshSessionInfo{}
 		}
 		if !session.loginSuccessful {
 			session.ClientVersion = string(c.ClientVersion())
@@ -46,17 +55,16 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 				Method:   "password",
 			}
 
-			if session.getPasswordAuthAttempts() == session.permitAttempt-1 { // Permit login on third attempt
-				logger.Println("Accepting connection")
+			if session.getPasswordAuthAttempts() == session.permitAttempt-1 { // Permit login
 				session.User = c.User()
 				session.Password = string(pass)
 				a.Successful = true
-				session.ClientSessions[session.ClientSessionId].AuthAttempts = append(session.ClientSessions[session.ClientSessionId].AuthAttempts, a)
+				session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
 				session.loginSuccessful = true
-				session.SSHSessionID = 0
+				session.sshSessionID = 0
 				return nil, nil
 			} else {
-				session.ClientSessions[session.ClientSessionId].AuthAttempts = append(session.ClientSessions[session.ClientSessionId].AuthAttempts, a)
+				session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
 			}
 
 		} else {
@@ -77,10 +85,10 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 				session.User = c.User()
 				session.Password = string(pass)
 				a.Successful = true
-				session.ClientSessions[session.ClientSessionId].AuthAttempts = append(session.ClientSessions[session.ClientSessionId].AuthAttempts, a)
+				session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
 				return nil, nil
 			} else {
-				session.ClientSessions[session.ClientSessionId].AuthAttempts = append(session.ClientSessions[session.ClientSessionId].AuthAttempts, a)
+				session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
 			}
 		}
 		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
@@ -91,10 +99,9 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 func authLogWrapper(session *sessionData, sessions map[string]*sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, method string, err error) {
 
 	return func(c ssh.ConnMetadata, method string, err error) {
-		if _, ok := session.ClientSessions[session.ClientSessionId]; !ok {
-			session.ClientSessions[session.ClientSessionId] = &sshSessionInfo{}
+		if _, ok := session.ClientSessions[session.sshSessionID]; !ok {
+			session.ClientSessions[session.sshSessionID] = &sshSessionInfo{}
 		}
-
 		if method != "password" {
 			if debug {
 				logger.Printf("(DEBUG) Auth attempt: Username %s, method %s\n", c.User(), method)
@@ -105,11 +112,12 @@ func authLogWrapper(session *sessionData, sessions map[string]*sessionData, debu
 				Method:     method,
 				Successful: false,
 			}
-			session.ClientSessions[session.ClientSessionId].AuthAttempts = append(session.ClientSessions[session.ClientSessionId].AuthAttempts, a)
+			session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
 		}
 		ip := strings.Split(c.RemoteAddr().String(), ":")
 		session.SourceIP = ip[0]
 		session.ClientVersion = string(c.ClientVersion())
+		session.ClientSessionId = fmt.Sprintf("%s-%d", session.SourceIP, time.Now().Unix())
 	}
 }
 

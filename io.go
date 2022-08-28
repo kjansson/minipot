@@ -83,7 +83,7 @@ func handleSSHExecInput(channel ssh.Channel, hjresp types.HijackedResponse, sess
 		}
 
 		if n != 0 {
-			if string(msg[0]) == "C" { // Copy file, we need to get payload size
+			if string(msg[0]) == "C" { // Copy file, we need to get payload size, TODO: fix this, this won't work always
 				parts := strings.Split(string(msg), " ")
 				payloadSize, err = strconv.Atoi(parts[1])
 				if err != nil {

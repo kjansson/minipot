@@ -117,7 +117,7 @@ func main() {
 			sessionTimeout:   *sessionTimeout,
 			PcapEnabled:      usePcap,
 			permitAttempt:    *permitAttempt,
-			ClientSessions:   make(map[string]*sshSessionInfo),
+			ClientSessions:   make(map[int]*sshSessionInfo),
 		}
 
 		config := &ssh.ServerConfig{
@@ -126,14 +126,12 @@ func main() {
 		}
 
 		config.AddHostKey(private)
-		logger.Printf("New SSH session (%d)\n", session.SSHSessionID)
+		logger.Printf("New SSH session (%d)\n", session.sshSessionID)
 		go handleClient(nConn, cli, config, &session, sessions, *outputDir, *debug)
 	}
 }
 
 func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, session *sessionData, sessions map[string]*sessionData, outputDir string, debug bool) {
-
-	logger := log.New(os.Stderr, fmt.Sprintf("%s (session %s-%s-%d): ", APP_NAME, session.MinipotSessionID, session.ClientSessionId, session.SSHSessionID), log.Ldate|log.Ltime|log.Lshortfile)
 
 	session.minipotSessionContext, session.minipotSessionCancel = context.WithTimeout(context.Background(), time.Duration(session.sessionTimeout)*time.Second)
 	newCtx := context.Background()
@@ -150,8 +148,10 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		session.minipotSessionCancel()
 	} else {
 
+		logger := log.New(os.Stderr, fmt.Sprintf("%s (session %s-%s-%d): ", APP_NAME, session.MinipotSessionID, session.ClientSessionId, session.sshSessionID), log.Ldate|log.Ltime|log.Lshortfile)
+
 		session = sessions[session.SourceIP]
-		id = session.SSHSessionID
+		id = session.sshSessionID
 
 		// If container ID is set in session, there should be a container running with that ID.
 		// Resume container and attach to it.
@@ -160,7 +160,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 				logger.Println("Creating container.")
 			}
 			// Create a new Docker network for this session, we don't want containers sharing networks
-			session.networkID = fmt.Sprintf("%s-%d", session.MinipotSessionID, session.SSHSessionID)
+			session.networkID = fmt.Sprintf("%s-%s", session.MinipotSessionID, session.ClientSessionId)
 			_, err = cli.NetworkCreate(context.Background(), session.networkID, types.NetworkCreate{
 				Attachable: true,
 			})
@@ -236,7 +236,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 
 		inputChan := make(chan byte)
-
 		// Input collector
 		go func() {
 			line := ""
@@ -252,7 +251,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 						Data: line,
 						Time: time.Now(),
 					}
-					session.ClientSessions[session.ClientSessionId].UserInput = append(session.ClientSessions[session.ClientSessionId].UserInput, i)
+					session.ClientSessions[session.sshSessionID].UserInput = append(session.ClientSessions[session.sshSessionID].UserInput, i)
 					line = ""
 				} else {
 					line = fmt.Sprintf("%s%s", line, string(b))
@@ -269,9 +268,9 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			} else {
 				for _, path := range diffs {
 					if debug {
-						logger.Printf("Modified file: %s\n", path)
+						logger.Printf("Modified file (to be ignored): %s\n", path)
 					}
-					session.ClientSessions[session.ClientSessionId].modifiedFilesIgnore = append(session.ClientSessions[session.ClientSessionId].modifiedFilesIgnore, path)
+					session.ClientSessions[session.sshSessionID].modifiedFilesIgnore = append(session.ClientSessions[session.sshSessionID].modifiedFilesIgnore, path)
 				}
 			}
 
@@ -326,7 +325,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 							Type:    req.Type,
 							Payload: payloadStripControl,
 						}
-						session.ClientSessions[session.ClientSessionId].SSHRequests = append(session.ClientSessions[session.ClientSessionId].SSHRequests, request)
+						session.ClientSessions[session.sshSessionID].SSHRequests = append(session.ClientSessions[session.sshSessionID].SSHRequests, request)
 						switch req.Type {
 						case "shell":
 							req.Reply(true, nil)
@@ -384,15 +383,17 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		if err != nil {
 			logger.Println("Error while getting diffs: ", err)
 		} else {
-			session.ClientSessions[session.ClientSessionId].ModifiedFiles = append(session.ClientSessions[session.ClientSessionId].ModifiedFiles, diffs...)
+			session.ClientSessions[session.sshSessionID].ModifiedFiles = append(session.ClientSessions[session.sshSessionID].ModifiedFiles, diffs...)
 		}
-		session.ClientSessions[session.ClientSessionId].ModifiedFiles = session.removeIgnoredModifiedFiles()
+		session.ClientSessions[session.sshSessionID].ModifiedFiles = session.removeIgnoredModifiedFiles()
 
 		if debug {
-			for _, file := range session.ClientSessions[session.ClientSessionId].ModifiedFiles {
+			for _, file := range session.ClientSessions[session.sshSessionID].ModifiedFiles {
 				logger.Printf("Modified file: %s\n", file)
 			}
 		}
+
+		<-session.minipotSessionContext.Done() // Wait for minipot session to end
 
 		logger.Printf("Writing log\n")
 		err = session.createLog(outputDir) // Create text log
@@ -406,7 +407,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		if debug {
 			logger.Printf("Waiting for Minipot session end before killing container.\n")
 		}
-		<-session.minipotSessionContext.Done() // Wait for minipot session to end
 		if debug {
 			logger.Printf("Minipot session ended, cleaning up.\n")
 		}
@@ -456,5 +456,5 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}
 	nConn.Close()
 
-	logger.Printf("All done\n")
+	log.Printf("All done\n")
 }
