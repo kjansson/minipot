@@ -20,6 +20,7 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 	return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 
 		session.sshSessionID++
+		logger.Println("Session ID:", session.sshSessionID)
 
 		if debug {
 			logger.Printf("(DEBUG) Password auth attempt: Username %s, password %s\n", c.User(), string(pass))
@@ -95,31 +96,31 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 	}
 }
 
-// Wrapper for auth callback, to include login attempts other than password
-func authLogWrapper(session *sessionData, sessions map[string]*sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, method string, err error) {
+// // Wrapper for auth callback, to include login attempts other than password
+// func authLogWrapper(session *sessionData, sessions map[string]*sessionData, debug bool, logger log.Logger) func(c ssh.ConnMetadata, method string, err error) {
 
-	return func(c ssh.ConnMetadata, method string, err error) {
-		if _, ok := session.ClientSessions[session.sshSessionID]; !ok {
-			session.ClientSessions[session.sshSessionID] = &sshSessionInfo{}
-		}
-		if method != "password" {
-			if debug {
-				logger.Printf("(DEBUG) Auth attempt: Username %s, method %s\n", c.User(), method)
-			}
-			a := authAttempt{
-				Username:   c.User(),
-				Time:       time.Now(),
-				Method:     method,
-				Successful: false,
-			}
-			session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
-		}
-		ip := strings.Split(c.RemoteAddr().String(), ":")
-		session.SourceIP = ip[0]
-		session.ClientVersion = string(c.ClientVersion())
-		session.ClientSessionId = fmt.Sprintf("%s-%d", session.SourceIP, time.Now().Unix())
-	}
-}
+// 	return func(c ssh.ConnMetadata, method string, err error) {
+// 		if _, ok := session.ClientSessions[session.sshSessionID]; !ok {
+// 			session.ClientSessions[session.sshSessionID] = &sshSessionInfo{}
+// 		}
+// 		if method != "password" {
+// 			if debug {
+// 				logger.Printf("(DEBUG) Auth attempt: Username %s, method %s\n", c.User(), method)
+// 			}
+// 			a := authAttempt{
+// 				Username:   c.User(),
+// 				Time:       time.Now(),
+// 				Method:     method,
+// 				Successful: false,
+// 			}
+// 			session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
+// 		}
+// 		ip := strings.Split(c.RemoteAddr().String(), ":")
+// 		session.SourceIP = ip[0]
+// 		session.ClientVersion = string(c.ClientVersion())
+// 		session.ClientSessionId = fmt.Sprintf("%s-%d", session.SourceIP, time.Now().Unix())
+// 	}
+// }
 
 func writeToSSHChannel(msg []byte, channel ssh.Channel) error {
 	_, err := channel.Write(msg) // Write to SSH channel

@@ -118,15 +118,16 @@ func main() {
 			PcapEnabled:      usePcap,
 			permitAttempt:    *permitAttempt,
 			ClientSessions:   make(map[int]*sshSessionInfo),
+			sshSessionID:     -1,
 		}
 
 		config := &ssh.ServerConfig{
 			PasswordCallback: authCallBackWrapper(&session, sessions, *debug, *logger),
-			AuthLogCallback:  authLogWrapper(&session, sessions, *debug, *logger),
+			//AuthLogCallback:  authLogWrapper(&session, sessions, *debug, *logger),
 		}
 
 		config.AddHostKey(private)
-		logger.Printf("New SSH session (%d)\n", session.sshSessionID)
+		logger.Println("New SSH session")
 		go handleClient(nConn, cli, config, &session, sessions, *outputDir, *debug)
 	}
 }
@@ -152,6 +153,8 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 
 		session = sessions[session.SourceIP]
 		id = session.sshSessionID
+
+		logger.Println("ID1:", session.sshSessionID)
 
 		// If container ID is set in session, there should be a container running with that ID.
 		// Resume container and attach to it.
@@ -268,6 +271,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			} else {
 				for _, path := range diffs {
 					if debug {
+						logger.Println("ID:", session.sshSessionID)
 						logger.Printf("Modified file (to be ignored): %s\n", path)
 					}
 					session.ClientSessions[session.sshSessionID].modifiedFilesIgnore = append(session.ClientSessions[session.sshSessionID].modifiedFilesIgnore, path)
@@ -394,23 +398,23 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		}
 
 		<-session.minipotSessionContext.Done() // Wait for minipot session to end
-
-		logger.Printf("Writing log\n")
-		err = session.createLog(outputDir) // Create text log
-		if err != nil {
-			logger.Println("WARNING: Error while writing log: ", err)
-		}
-		err = session.createJsonLog(outputDir) // JSON log
-		if err != nil {
-			logger.Println("WARNING: Error while writing JSON log: ", err)
-		}
-		if debug {
-			logger.Printf("Waiting for Minipot session end before killing container.\n")
-		}
-		if debug {
-			logger.Printf("Minipot session ended, cleaning up.\n")
-		}
 		if id == 0 {
+			logger.Printf("Writing log\n")
+			err = session.createLog(outputDir) // Create text log
+			if err != nil {
+				logger.Println("WARNING: Error while writing log: ", err)
+			}
+			err = session.createJsonLog(outputDir) // JSON log
+			if err != nil {
+				logger.Println("WARNING: Error while writing JSON log: ", err)
+			}
+			if debug {
+				logger.Printf("Waiting for Minipot session end before killing container.\n")
+			}
+			if debug {
+				logger.Printf("Minipot session ended, cleaning up.\n")
+			}
+
 			// TODO all this needs to be done in separate files for each session
 			if session.PcapEnabled {
 				logger.Printf("Getting PCAP data\n")
@@ -450,8 +454,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 				logger.Println("WARNING: error while removing network: ", err)
 			}
 			delete(sessions, session.SourceIP)
-		} else {
-			logger.Printf("Not first session, session %d\n", id)
 		}
 	}
 	nConn.Close()
