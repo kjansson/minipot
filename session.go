@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -115,8 +116,8 @@ func (s sessionData) createLog(outputDir string) error {
 		return err
 	}
 
-	str := fmt.Sprintf("Log for session %d from address '%s'. Network mode '%s'. Client version: '%s'\n",
-		s.sshSessionAttemptNumber,
+	str := fmt.Sprintf("Log for session %s from address '%s'. Network mode '%s'. Client version: '%s'\n",
+		s.ClientSessionId,
 		s.SourceIP,
 		s.NetworkMode,
 		s.ClientVersion)
@@ -137,12 +138,19 @@ func (s sessionData) createLog(outputDir string) error {
 		return err
 	}
 
-	for sessionIndex, session := range s.ClientSessions {
+	keys := make([]int, 0)
+	for k, _ := range s.ClientSessions {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
 
-		str = fmt.Sprintf("\nSession %d:\n", sessionIndex)
+	for _, sessionIndex := range keys {
+		//for sessionIndex := 0; sessionIndex < keys; sessionIndex++ {
+
+		str = fmt.Sprintf("\nAttempt %d:\n", sessionIndex)
 		f.WriteString(str)
 		f.WriteString("Authentication attempts;\n")
-		for i, a := range session.AuthAttempts {
+		for i, a := range s.ClientSessions[sessionIndex].AuthAttempts {
 			if a.Method == "password" {
 				if a.Successful {
 					str = fmt.Sprintf("Accepted attempt %d at %s using password method: username: '%s', password '%s'\n", i+1, a.Time.Format(time.UnixDate), a.Username, a.Password)
@@ -160,7 +168,7 @@ func (s sessionData) createLog(outputDir string) error {
 
 		str = ""
 		f.WriteString("SSH requests;\n")
-		for _, r := range session.SSHRequests {
+		for _, r := range s.ClientSessions[sessionIndex].SSHRequests {
 			str = fmt.Sprintf("SSH request: Type '%s', payload '%s'\n", r.Type, r.Payload)
 		}
 		f.WriteString(str)
@@ -169,7 +177,7 @@ func (s sessionData) createLog(outputDir string) error {
 		}
 		str = ""
 		f.WriteString("User input;\n")
-		for _, u := range session.UserInput {
+		for _, u := range s.ClientSessions[sessionIndex].UserInput {
 			str := fmt.Sprintf("%s: '%s'\n", u.Time.Format(time.UnixDate), u.Data)
 			f.WriteString(str)
 			if err != nil {
@@ -178,7 +186,7 @@ func (s sessionData) createLog(outputDir string) error {
 		}
 		str = ""
 		f.WriteString("File modified during session;\n")
-		for _, file := range session.ModifiedFiles {
+		for _, file := range s.ClientSessions[sessionIndex].ModifiedFiles {
 			str := fmt.Sprintf("Path: %s\n", file)
 			f.WriteString(str)
 			if err != nil {
