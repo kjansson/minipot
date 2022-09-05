@@ -50,7 +50,6 @@ type sshSessionInfo struct {
 func (s sessionData) getPasswordAuthAttempts() int {
 
 	attempts := 0
-	//if _, ok := s.ClientSessions[s.sshSessionID]; ok {
 	for _, attempt := range s.ClientSessions {
 		for _, auth := range attempt.AuthAttempts {
 			if auth.Method == "password" {
@@ -58,7 +57,6 @@ func (s sessionData) getPasswordAuthAttempts() int {
 			}
 		}
 	}
-	//}
 	return attempts
 }
 
@@ -145,8 +143,6 @@ func (s sessionData) createLog(outputDir string) error {
 	sort.Ints(keys)
 
 	for _, sessionIndex := range keys {
-		//for sessionIndex := 0; sessionIndex < keys; sessionIndex++ {
-
 		str = fmt.Sprintf("\nAttempt %d:\n", sessionIndex)
 		f.WriteString(str)
 		f.WriteString("Authentication attempts;\n")
