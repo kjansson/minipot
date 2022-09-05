@@ -19,8 +19,10 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 
 	return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 
-		session.sshSessionID++
-		logger.Println("Session ID:", session.sshSessionID)
+		//session.sshSessionID++
+		//logger.Println("Session ID:", session.sshSessionID)
+
+		// If new session
 
 		if debug {
 			logger.Printf("(DEBUG) Password auth attempt: Username %s, password %s\n", c.User(), string(pass))
@@ -28,70 +30,124 @@ func authCallBackWrapper(session *sessionData, sessions map[string]*sessionData,
 
 		ip := strings.Split(c.RemoteAddr().String(), ":")
 		session.SourceIP = ip[0]
+
 		if _, ok := sessions[session.SourceIP]; !ok {
 			if debug {
-				logger.Println("New session")
+				logger.Println("New client")
 			}
 			sessions[session.SourceIP] = session
-			sessions[session.SourceIP].ClientSessionId = fmt.Sprintf("%s-%d", session.SourceIP, time.Now().Unix())
+			session.ClientSessions = make(map[int]*sshSessionInfo)
+			session.ClientSessionId = fmt.Sprintf("%s-%d", session.SourceIP, time.Now().Unix())
+			session.activeSSHSession = true
+			session.ClientVersion = string(c.ClientVersion())
+
 		} else {
 			if debug {
-				logger.Println("Existing session")
+				logger.Println("Existing client")
 			}
 			session = sessions[session.SourceIP]
-			session.ClientSessionId = fmt.Sprintf("%s-%d", session.SourceIP, time.Now().Unix())
+			session.sshSessionAttemptNumber++
+			//session.ClientSessionId = fmt.Sprintf("%s-%d", session.SourceIP, time.Now().Unix())
 		}
-		if _, ok := session.ClientSessions[session.sshSessionID]; !ok {
-			if debug {
-				logger.Println("New client session")
-			}
-			session.ClientSessions[session.sshSessionID] = &sshSessionInfo{}
+		// if _, ok := session.ClientSessions[session.sshSessionID]; !ok {
+		// 	if debug {
+		// 		logger.Println("New client session")
+		// 	}
+		// 	session.ClientSessions[session.sshSessionID] = &sshSessionInfo{}
+		// }
+
+		/// OLD SHIT BELOW
+
+		// if !session.activeSSHSession {
+		// 	session.sshSessionID++
+		// 	logger.Println("NEW SSH SESSION:", session.sshSessionID)
+		// 	session.activeSSHSession = true
+		// if _, ok := session.ClientSessions; !ok {
+
+		// }
+		// }
+
+		// 	// if !session.loginSuccessful {
+		//session.ClientVersion = string(c.ClientVersion())
+		a := authAttempt{
+			Username: c.User(),
+			Password: string(pass),
+			Time:     time.Now(),
+			Method:   "password",
 		}
-		if !session.loginSuccessful {
-			session.ClientVersion = string(c.ClientVersion())
-			a := authAttempt{
-				Username: c.User(),
-				Password: string(pass),
-				Time:     time.Now(),
-				Method:   "password",
-			}
 
-			if session.getPasswordAuthAttempts() == session.permitAttempt-1 { // Permit login
-				session.User = c.User()
-				session.Password = string(pass)
-				a.Successful = true
-				session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
-				session.loginSuccessful = true
-				session.sshSessionID = 0
-				return nil, nil
-			} else {
-				session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
-			}
+		if _, ok := session.ClientSessions[session.sshSessionAttemptNumber]; !ok {
+			session.ClientSessions[session.sshSessionAttemptNumber] = &sshSessionInfo{}
+		}
 
-		} else {
-			if debug {
-				logger.Println("Existing session")
-			}
-
-			session.ClientVersion = string(c.ClientVersion())
-			a := authAttempt{
-				Username: c.User(),
-				Password: string(pass),
-				Time:     time.Now(),
-				Method:   "password",
-			}
-
+		if session.loginSuccessful {
 			if string(pass) == session.Password { // Accept previously used password
 				logger.Println("Accepting connection from existing session")
 				session.User = c.User()
 				session.Password = string(pass)
 				a.Successful = true
-				session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
+				session.activeSSHSession = true
+				session.ClientSessions[session.sshSessionAttemptNumber].AuthAttempts = append(session.ClientSessions[session.sshSessionAttemptNumber].AuthAttempts, a)
 				return nil, nil
 			} else {
-				session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
+				session.ClientSessions[session.sshSessionAttemptNumber].AuthAttempts = append(session.ClientSessions[session.sshSessionAttemptNumber].AuthAttempts, a)
+			}
+		} else {
+			if session.getPasswordAuthAttempts() == session.permitAttempt-1 { // Permit login
+				session.User = c.User()
+				session.Password = string(pass)
+				a.Successful = true
+				logger.Println("Session that fucks up: ", session.sshSessionAttemptNumber)
+
+				session.ClientSessions[session.sshSessionAttemptNumber].AuthAttempts = append(session.ClientSessions[session.sshSessionAttemptNumber].AuthAttempts, a)
+				session.loginSuccessful = true
+				//session.sshSessionAttemptNumber = 0
+				return nil, nil
+			} else {
+				session.ClientSessions[session.sshSessionAttemptNumber].AuthAttempts = append(session.ClientSessions[session.sshSessionAttemptNumber].AuthAttempts, a)
 			}
 		}
+		// 	if session.getPasswordAuthAttempts() == session.permitAttempt-1 { // Permit login
+		// 		session.User = c.User()
+		// 		session.Password = string(pass)
+		// 		a.Successful = true
+		// 		logger.Println("Session that fucks up: ", session.sshSessionID)
+		// 		if _, ok := session.ClientSessions[session.sshSessionID]; !ok {
+		// 			session.ClientSessions[session.sshSessionID] = &sshSessionInfo{}
+		// 		}
+		// 		session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
+		// 		session.loginSuccessful = true
+		// 		session.sshSessionID = 0
+		// 		return nil, nil
+		// 	} else {
+		// 		session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
+		// 	}
+
+		// } else {
+		// 	if debug {
+		// 		logger.Println("Existing session")
+		// 	}
+
+		// a := authAttempt{
+		// 	Username: c.User(),
+		// 	Password: string(pass),
+		// 	Time:     time.Now(),
+		// 	Method:   "password",
+		// }
+
+		// 	if string(pass) == session.Password { // Accept previously used password
+		// 		logger.Println("Accepting connection from existing session")
+		// 		session.User = c.User()
+		// 		session.Password = string(pass)
+		// 		a.Successful = true
+		// 		session.activeSSHSession = true
+		// 		session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
+		// 		return nil, nil
+		// 	} else {
+		// 		session.ClientSessions[session.sshSessionID].AuthAttempts = append(session.ClientSessions[session.sshSessionID].AuthAttempts, a)
+		// 	}
+		// }
+		//session.activeSSHSession = false
 		return nil, fmt.Errorf("(DEBUG) password rejected for %q", c.User())
 	}
 }

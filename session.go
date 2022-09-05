@@ -11,30 +11,31 @@ import (
 
 // Session information, exported values are used in JSON log
 type sessionData struct {
-	minipotSessionContext context.Context
-	minipotSessionCancel  context.CancelFunc
-	sshSessionContext     context.Context
-	sshSessionCancel      context.CancelFunc
-	MinipotSessionID      string
-	ClientSessionId       string
-	sshSessionID          int
-	User                  string
-	Password              string
-	loginSuccessful       bool
-	GuestEnvHostname      string
-	SourceIP              string
-	ClientVersion         string
-	ClientSessions        map[int]*sshSessionInfo
-	LoginError            string
-	NetworkMode           string
-	containerID           string
-	pcapContainerID       string
-	networkID             string
-	sessionTimeout        int
-	TimedOutBySession     bool
-	environmentVariables  []string
-	PcapEnabled           bool
-	permitAttempt         int
+	minipotSessionContext   context.Context
+	minipotSessionCancel    context.CancelFunc
+	sshSessionContext       context.Context
+	sshSessionCancel        context.CancelFunc
+	MinipotSessionID        string
+	ClientSessionId         string
+	sshSessionAttemptNumber int
+	activeSSHSession        bool
+	User                    string
+	Password                string
+	loginSuccessful         bool
+	GuestEnvHostname        string
+	SourceIP                string
+	ClientVersion           string
+	ClientSessions          map[int]*sshSessionInfo
+	LoginError              string
+	NetworkMode             string
+	containerID             string
+	pcapContainerID         string
+	networkID               string
+	sessionTimeout          int
+	TimedOutBySession       bool
+	environmentVariables    []string
+	PcapEnabled             bool
+	permitAttempt           int
 }
 
 type sshSessionInfo struct {
@@ -48,26 +49,30 @@ type sshSessionInfo struct {
 func (s sessionData) getPasswordAuthAttempts() int {
 
 	attempts := 0
-	for _, attempt := range s.ClientSessions[s.sshSessionID].AuthAttempts {
-		if attempt.Method == "password" {
-			attempts++
+	//if _, ok := s.ClientSessions[s.sshSessionID]; ok {
+	for _, attempt := range s.ClientSessions {
+		for _, auth := range attempt.AuthAttempts {
+			if auth.Method == "password" {
+				attempts++
+			}
 		}
 	}
+	//}
 	return attempts
 }
 
 func (s sessionData) removeIgnoredModifiedFiles() []string {
 	keepFiles := []string{}
 
-	for index, file := range s.ClientSessions[s.sshSessionID].ModifiedFiles {
+	for index, file := range s.ClientSessions[s.sshSessionAttemptNumber].ModifiedFiles {
 		found := false
-		for _, ignore := range s.ClientSessions[s.sshSessionID].modifiedFilesIgnore {
+		for _, ignore := range s.ClientSessions[s.sshSessionAttemptNumber].modifiedFilesIgnore {
 			if file == ignore {
 				found = true
 			}
 		}
 		if !found {
-			keepFiles = append(keepFiles, s.ClientSessions[s.sshSessionID].ModifiedFiles[index])
+			keepFiles = append(keepFiles, s.ClientSessions[s.sshSessionAttemptNumber].ModifiedFiles[index])
 		}
 	}
 	return keepFiles
@@ -111,7 +116,7 @@ func (s sessionData) createLog(outputDir string) error {
 	}
 
 	str := fmt.Sprintf("Log for session %d from address '%s'. Network mode '%s'. Client version: '%s'\n",
-		s.sshSessionID,
+		s.sshSessionAttemptNumber,
 		s.SourceIP,
 		s.NetworkMode,
 		s.ClientVersion)
