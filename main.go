@@ -384,7 +384,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		if err != nil {
 			logger.Println("Error while getting diffs: ", err)
 		} else {
-			logger.Println("sesion:", session.sshSessionAttemptNumber)
 			session.ClientSessions[session.sshSessionAttemptNumber].ModifiedFiles = append(session.ClientSessions[session.sshSessionAttemptNumber].ModifiedFiles, diffs...)
 		}
 		session.ClientSessions[session.sshSessionAttemptNumber].ModifiedFiles = session.removeIgnoredModifiedFiles()
