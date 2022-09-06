@@ -151,6 +151,12 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		newCtx := context.Background()
 		session.sshSessionContext, session.sshSessionCancel = context.WithCancel(newCtx)
 
+		go func() {
+			time.Sleep(time.Duration(session.sessionTimeout) * time.Second)
+			session.sshSessionCancel()
+			session.minipotSessionCancel()
+		}()
+
 		// If container ID is set in session, there should be a container running with that ID.
 		// Resume container and attach to it.
 		if session.containerID == "" {
