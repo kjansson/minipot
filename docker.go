@@ -18,7 +18,7 @@ import (
 
 const DOCKER_FILE_BASE = `COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-RUN apt update && apt install -y ssh iputils-ping curl
+RUN apt update && apt install -y ssh iputils-ping curl wget net-tools
 ENTRYPOINT /entrypoint.sh
 `
 
