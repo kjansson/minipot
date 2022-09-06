@@ -25,6 +25,7 @@ Minipot is aimed at ease of use. Just build and run the image. It will do just f
 -pcap           # Enables packet capture. Only available when using '-networkmode=bridge'.
 -privatekey     # Path to private key for SSH server if providing your own is preferable. If left empty, one will be created for each session.
 -bindaddress    # SSH bind address and port in format 'ip:port'. Default is '0.0.0.0:22'.
+-permitAttempt  # Authentication attempt to permit access to container on. Default is 1.
 ```
 
 # Docker environment variables
