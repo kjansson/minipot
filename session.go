@@ -126,9 +126,9 @@ func (s sessionData) createLog(outputDir string) error {
 
 	str = "Session end reason: "
 	if s.TimedOutBySession {
-		str = fmt.Sprintf("%sSession timeout reached.\n", str)
+		str = fmt.Sprintf("%sSession ended by server due to timeout.\n", str)
 	} else {
-		str = fmt.Sprintf("%sConnection closed.\n", str)
+		str = fmt.Sprintf("%sConnection closed by client.\n", str)
 	}
 
 	f.WriteString(str)
