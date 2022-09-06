@@ -51,19 +51,15 @@ go build
 ```
 
 ## Run in Docker (recommended)
-```
-# Build image
-docker build -t minipot-base .
-```
 
 ```
 # Run with default settings
-docker run -v /var/run/docker.sock:/var/run/docker.sock -p 22:22 minipot-base
+docker run -v /var/run/docker.sock:/var/run/docker.sock -p 22:22 kumpe/minipot:latest
 ```
 
 ```
 # Or run with some options
-docker run -v /var/run/docker.sock:/var/run/docker.sock -v ./logs:/logs -p 22:22 -e OUTPUTDIR=/logs -e PCAP=true -e HOSTNAME=my-important-server-01 minipot-base
+docker run -v /var/run/docker.sock:/var/run/docker.sock -v ./logs:/logs -p 22:22 -e OUTPUTDIR=/logs -e PCAP=true -e HOSTNAME=my-important-server-01 kumpe/minipot:latest
 ```
 
 # Packet capture
