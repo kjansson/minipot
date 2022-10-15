@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MINIPOT_ENVS=( "DEBUG" "-debug" "OUTPUTDIR" "-outputdir" "ID" "-id" "HOSTNAME" "-hostname" "NETWORKMODE" "-networkmode" "SESSIONTIMEOUT" "-sessiontimeout" "PCAP" "-pcap" "PRIVATEKEY" "-privatekey" "BINDADDRESS" "-bindaddress" "PERMITATTEMPT" "permitattempt" )
+MINIPOT_ENVS=( "DEBUG" "-debug" "OUTPUTDIR" "-outputdir" "ID" "-id" "HOSTNAME" "-hostname" "NETWORKMODE" "-networkmode" "SESSIONTIMEOUT" "-sessiontimeout" "PCAP" "-pcap" "PRIVATEKEY" "-privatekey" "BINDADDRESS" "-bindaddress" "PERMITATTEMPT" "permitattempt" "SAVEALTEREDFILES" "savefiles")
 
 i=0
 for a in ${MINIPOT_ENVS[@]}; do
