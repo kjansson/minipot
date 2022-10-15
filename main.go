@@ -306,7 +306,6 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 				}
 
 				go func(in <-chan *ssh.Request) {
-					//Requestloop:
 					for req := range in {
 
 						payloadStripControl := strings.Map(func(r rune) rune {
@@ -457,5 +456,5 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 	}
 	nConn.Close()
 
-	log.Printf("All done\n")
+	log.Printf("SSH session ended\n")
 }
