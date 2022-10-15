@@ -42,6 +42,7 @@ type sessionData struct {
 	environmentVariables    []string
 	PcapEnabled             bool
 	permitAttempt           int
+	saveAlteredFiles        bool
 }
 
 type sshSessionInfo struct {
