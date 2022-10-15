@@ -234,11 +234,10 @@ func (s sessionData) createModifiedFilesTar(cli *client.Client) error {
 	defer tarWriter.Close()
 
 	for _, path := range s.ClientSessions[s.sshSessionAttemptNumber].ModifiedFiles {
-		fmt.Println("path: ", path)
 		file, src, err := cli.CopyFromContainer(context.Background(), s.containerID, path) // Copy PCAP file, comes as TAR archive
 		if err != nil {
 			cli.ContainerUnpause(context.Background(), s.containerID) // Unpause container
-			return errors.New(fmt.Sprintf("NOPE:", err))
+			return errors.New(fmt.Sprintf("Could not copy from container: ", err))
 		}
 
 		tr := tar.NewReader(file)
@@ -246,14 +245,8 @@ func (s sessionData) createModifiedFilesTar(cli *client.Client) error {
 
 		contents, err := ioutil.ReadAll(tr)
 		if err != nil {
-			fmt.Println("BORK")
+			return errors.New(fmt.Sprintf("Could not read: %s", err))
 		}
-		// v := make([]byte, 1024)
-		// n, err := file.Read(v)
-		// if err != nil {
-		// 	fmt.Println("BORK")
-		// }
-		fmt.Println("READ ", len(contents), " bytes")
 
 		header := &tar.Header{
 			Name:    src.Name,
@@ -261,19 +254,13 @@ func (s sessionData) createModifiedFilesTar(cli *client.Client) error {
 			Mode:    int64(src.Mode),
 			ModTime: src.Mtime,
 		}
-
-		fmt.Println("Given size is ", src.Size, " bytes")
-
-		fmt.Println("WRITING")
 		err = tarWriter.WriteHeader(header)
 		if err != nil {
 			cli.ContainerUnpause(context.Background(), s.containerID) // Unpause container
 			return fmt.Errorf("could not write header for file, got error '%s'", err.Error())
 		}
 
-		//_, err = io.Copy(tarWriter, contents)
 		_, err = tarWriter.Write(contents)
-		//if err != nil && err != io.EOF {
 		if err != nil {
 			cli.ContainerUnpause(context.Background(), s.containerID) // Unpause container
 			return fmt.Errorf("could not copy the file data to the tarball, got error '%s'", err.Error())
