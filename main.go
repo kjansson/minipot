@@ -380,6 +380,7 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 		logger.Printf("SSH session ended\n")
 
 		// Save modified file paths
+		fmt.Println("ID1:", session.containerID)
 		diffs, err := getContainerFileDiff(cli, session.containerID, *logger, debug)
 		if err != nil {
 			logger.Println("Error while getting diffs: ", err)
@@ -387,6 +388,27 @@ func handleClient(nConn net.Conn, cli *client.Client, config *ssh.ServerConfig, 
 			session.ClientSessions[session.sshSessionAttemptNumber].ModifiedFiles = append(session.ClientSessions[session.sshSessionAttemptNumber].ModifiedFiles, diffs...)
 		}
 		session.ClientSessions[session.sshSessionAttemptNumber].ModifiedFiles = session.removeIgnoredModifiedFiles()
+
+		// buf := new(bytes.Buffer)
+		// tarWriter := tar.NewWriter(buf)
+
+		// for _, modifiedFile := range session.ClientSessions[session.sshSessionAttemptNumber].ModifiedFiles {
+		// 	file, path, err := cli.CopyFromContainer(context.Background(), session.pcapContainerID, modifiedFile) // Copy PCAP file, comes as TAR archive
+		// 	if err != nil {
+		// 		logger.Println("WARNING: Error getting modified file: ", err)
+		// 	}
+		// 	_, err = file.Read(buf.Bytes())
+		// 	err = writeTar(tarWriter, path.Name, []byte(PCAP_DOCKER_FILE))
+		// 	if err != nil {
+		// 		os.Exit(23)
+		// 	}
+		// }
+		fmt.Println("ID2:", session.containerID)
+		fmt.Println("HERE WE GO")
+		err = session.createModifiedFilesTar(cli)
+		if err != nil {
+			logger.Println("Error while creating modified files tar: ", err)
+		}
 
 		<-session.minipotSessionContext.Done() // Wait for minipot session to end
 		if id == 0 {

@@ -1,13 +1,18 @@
 package main
 
 import (
+	"archive/tar"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/docker/docker/client"
 )
 
 // Session information, exported values are used in JSON log
@@ -210,5 +215,70 @@ func (s sessionData) createPCAPFile(outputDir string, pcap []byte) error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (s sessionData) createModifiedFilesTar(cli *client.Client) error {
+	cli.ContainerPause(context.Background(), s.containerID) // Pause container so we can do diff
+	filename := fmt.Sprintf("%s-%s-%d.tar", s.MinipotSessionID, s.ClientSessionId, s.sshSessionAttemptNumber)
+
+	file, err := os.Create(filename)
+	if err != nil {
+		cli.ContainerUnpause(context.Background(), s.containerID) // Unpause container
+		return fmt.Errorf("error while creating TAR file: %s", err.Error())
+	}
+	defer file.Close()
+
+	tarWriter := tar.NewWriter(file)
+	defer tarWriter.Close()
+
+	for _, path := range s.ClientSessions[s.sshSessionAttemptNumber].ModifiedFiles {
+		fmt.Println("path: ", path)
+		file, src, err := cli.CopyFromContainer(context.Background(), s.containerID, path) // Copy PCAP file, comes as TAR archive
+		if err != nil {
+			cli.ContainerUnpause(context.Background(), s.containerID) // Unpause container
+			return errors.New(fmt.Sprintf("NOPE:", err))
+		}
+
+		tr := tar.NewReader(file)
+		tr.Next()
+
+		contents, err := ioutil.ReadAll(tr)
+		if err != nil {
+			fmt.Println("BORK")
+		}
+		// v := make([]byte, 1024)
+		// n, err := file.Read(v)
+		// if err != nil {
+		// 	fmt.Println("BORK")
+		// }
+		fmt.Println("READ ", len(contents), " bytes")
+
+		header := &tar.Header{
+			Name:    src.Name,
+			Size:    int64(len(contents)),
+			Mode:    int64(src.Mode),
+			ModTime: src.Mtime,
+		}
+
+		fmt.Println("Given size is ", src.Size, " bytes")
+
+		fmt.Println("WRITING")
+		err = tarWriter.WriteHeader(header)
+		if err != nil {
+			cli.ContainerUnpause(context.Background(), s.containerID) // Unpause container
+			return fmt.Errorf("could not write header for file, got error '%s'", err.Error())
+		}
+
+		//_, err = io.Copy(tarWriter, contents)
+		_, err = tarWriter.Write(contents)
+		//if err != nil && err != io.EOF {
+		if err != nil {
+			cli.ContainerUnpause(context.Background(), s.containerID) // Unpause container
+			return fmt.Errorf("could not copy the file data to the tarball, got error '%s'", err.Error())
+		}
+
+	}
+	cli.ContainerUnpause(context.Background(), s.containerID) // Unpause container
 	return nil
 }
