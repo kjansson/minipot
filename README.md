@@ -68,7 +68,6 @@ docker run -v /var/run/docker.sock:/var/run/docker.sock -v ./logs:/logs -p 22:22
 Logs will be outputted to the chosen path, one text file for human readability and one in JSON format.  
 Filename format for text logs is '{id}-{ip}-{ssh-sessionid}', and the same for JSON but with .json as file ending.  
 Logs contain information about client, origin, SSH requests, authentication attempts, user input (keystrokes), and files that have been modified during the session. 
-PCAP files will be stored (if enabled) with the same filename format as logs, with a .pcap suffix.
 
 # Packet capture
 Packet capture can be enabled by using the flag '-pcap=true'. It will run tcpdump in a separate container attached to the container network of the client, and PCAP files will be stored along with the regular log files. Be aware that it captures all traffic, which could potentially be CPU-intensive and eat some storage.
