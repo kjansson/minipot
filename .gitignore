@@ -1,2 +1,5 @@
 minipot
 go.sum
+docker-build-push.sh
+fakecert
+.vscode    
