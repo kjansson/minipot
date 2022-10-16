@@ -26,6 +26,7 @@ Minipot is aimed at ease of use. Just build and run the image. It will do just f
 -privatekey     # Path to private key for SSH server if providing your own is preferable. If left empty, one will be created for each session.
 -bindaddress    # SSH bind address and port in format 'ip:port'. Default is '0.0.0.0:22'.
 -permitAttempt  # Authentication attempt to permit access to container on. Default is 1.
+-savefiles      # Save files modified during session. Creates one tarball with modified files for each SSH session. Defaults to false.
 ```
 
 # Docker environment variables
@@ -63,15 +64,18 @@ docker run -v /var/run/docker.sock:/var/run/docker.sock -p 22:22 kumpe/minipot:l
 docker run -v /var/run/docker.sock:/var/run/docker.sock -v ./logs:/logs -p 22:22 -e OUTPUTDIR=/logs -e PCAP=true -e HOSTNAME=my-important-server-01 kumpe/minipot:latest
 ```
 
+# Logging
+Logs will be outputted to the chosen path, one text file for human readability and one in JSON format.  
+Filename format for text logs is '{id}-{ip}-{ssh-sessionid}', and the same for JSON but with .json as file ending.  
+Logs contain information about client, origin, SSH requests, authentication attempts, user input (keystrokes), and files that have been modified during the session. 
+PCAP files will be stored (if enabled) with the same filename format as logs, with a .pcap suffix.
+
 # Packet capture
 Packet capture can be enabled by using the flag '-pcap=true'. It will run tcpdump in a separate container attached to the container network of the client (so to be invisible to the client), and PCAP files will be stored along with the regular log files. Be aware that it captures all traffic, which could potentially be CPU-intensive and eat some storage.
 Package capture is only available when using -networkmode=bridge
 
-# Logging
-Logs will be outputted to the chosen path, one text file for human readability and one in JSON format.  
-Filename format for text logs is '{id}-{ip}-{ssh-sessionid}', and the same for JSON but with .json as file ending.  
-Logs contain information about client, origin, requests, authentication attempts, user input (keystrokes), and files that have been modified during the session. 
-PCAP files will be stored (if enabled) with the same filename format as logs, with a .pcap suffix.
+# Modified files
+Setting the flag '-savefiles=true' will save all modified files during each SSH session in a tarball. No size limits are enforced, so use with caution. Tarballs will follow the same name schema as logs.
 
 # Other information
 By default, containers have no network connection. This can be changed using the flag -networkmode, but do so at your own risk. Available modes are "none", "host", and "bridge". Packet capture is only available in bridge mode.
